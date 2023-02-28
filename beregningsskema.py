@@ -3,99 +3,129 @@ import copy
 
 sg.theme("DarkBrown4")
 #sg.theme_text_color("#c73530")
+#sg.theme_text_color("#9eb6c5")
 sg.theme_text_color("#f82222")
 sg.theme_border_width(0)
 sg.theme_input_background_color("#2b2b2b")
 sg.theme_input_text_color("#c75450")
 sg.theme_button_color((sg.theme_text_color(), sg.theme_background_color()))
 disabled_color = "#3c3f41"
+#active_color = "#499c54"
+active_color = "#c75450"
 input_background_color = "#333333"
 
-
+DEFAULT_MOLECULE_AMOUNT = 3
+CONVERT_SHIFTED = True
+USE_SUBSCRIPT = True
+USE_MOLECULE_ADD = True
+USE_ATOM_ADD = True
+FORCE_MONO = True  # Chemical font is unaffected if USE_SUBSCRIPT == True
 fontsize = 15
-fonttype = "DejaVu Sans Mono"
-small_font = (fonttype, fontsize-4)
+BASE_LEN = 15
+MONO_LEN = 16
+small_font_subtraction = 2
+fonttype = "DejaVu Sans"
+chemtype = "DejaVu Sans"
+monotype = "DejaVu Sans Mono"
+
+#   DejaVu Sans (Mono)
+#   Gadugi
+#   Lucida Sans Unicode / Lucida Console
+#   Noto Sans / Noto Mono / Noto Serif
+#   Rubik
+#   Sylfaen
+#   Tahoma
+#   Verdana
+
+if FORCE_MONO:
+    fonttype = monotype
+if FORCE_MONO and not USE_SUBSCRIPT:
+    chemtype = monotype
+small_font = (fonttype, fontsize-small_font_subtraction)
+mono = (monotype, fontsize)
+chemfont = (chemtype, fontsize)
+small_chem = (chemtype, fontsize-small_font_subtraction)
 
 
 atom_units = {
-    "H": 1.008,
+    "H": 1.00794,
     "He": 4.0026,
-    "Li": 6.94,
-    "Be": 9.0122,
-    "B": 10.81,
+    "Li": 6.941,
+    "Be": 9.01218,
+    "B": 10.811,
     "C": 12.011,
-    "N": 14.007,
-    "O": 15.999,
-    "F": 18.998,
-    "Ne": 20.180,
-    "Na": 22.990,
+    "N": 14.00674,
+    "O": 15.9994,
+    "F": 18.9984,
+    "Ne": 20.1797,
+    "Na": 22.98977,
     "Mg": 24.305,
-    "Al": 26.982,
-    "Si": 28.085,
-    "P": 30.974,
-    "S": 32.06,
-    "Cl": 35.45,
+    "Al": 26.98154,
+    "Si": 28.0855,
+    "P": 30.97376,
+    "S": 32.066,
+    "Cl": 35.4527,
     "Ar": 39.948,
-    "K": 39.098,
+    "K": 39.0983,
     "Ca": 40.078,
-    "Sc": 44.956,
+    "Sc": 44.95591,
     "Ti": 47.867,
-    "V": 50.942,
-    "Cr": 51.996,
-    "Mn": 54.938,
+    "V": 50.9415,
+    "Cr": 51.9961,
+    "Mn": 54.93805,
     "Fe": 55.845,
-    "Co": 58.933,
-    "Ni": 58.693,
+    "Co": 58.93320,
+    "Ni": 58.6934,
     "Cu": 63.546,
-    "Zn": 65.38,
+    "Zn": 65.39,
     "Ga": 69.723,
-    "Ge": 72.630,
-    "As": 74.922,
-    "Se": 78.971,
+    "Ge": 72.61,
+    "As": 74.92159,
+    "Se": 78.96,
     "Br": 79.904,
     "Kr": 83.798,
-    "Rb": 1.0,
-    "Sr": 1.0,
-    "Y": 1.0,
-    "Zr": 1.0,
-    "Nb": 1.0,
-    "Mo": 1.0,
-    "Tc": 1.0,
-    "Ru": 1.0,
-    "Rh": 1.0,
-    "Pd": 1.0,
-    "Ag": 1.0,
-    "Cd": 1.0,
-    "In": 1.0,
-    "Sn": 1.0,
-    "Sb": 1.0,
-    "Te": 1.0,
-    "I": 1.0,
-    "Xe": 1.0,
-    "Cs": 1.0,
-    "Ba": 1.0,
-    "Hf": 1.0,
-    "Ta": 1.0,
-    "W": 1.0,
-    "Re": 1.0,
-    "Os": 1.0,
-    "Ir": 1.0,
-    "Pt": 1.0,
-    "Au": 1.0,
-    "Hg": 1.0,
-    "Tl": 1.0,
-    "Pb": 1.0,
-    "Bi": 1.0,
-    "Po": 1.0,
-    "At": 1.0,
-    "Rn": 1.0,
-    "Fr": 1.0,
-    "Ra": 1.0,
-    "Rf": 1.0,
-    "Db": 1.0,
-    "Sg": 1.0,
-    "Bh": 1.0,
-    "Hs": 1.0,
+    "Rb": 85.4678,
+    "Sr": 87.62,
+    "Y": 88.90585,
+    "Zr": 91.224,
+    "Nb": 92.9064,
+    "Mo": 95.94,
+    "Tc": 98.0,
+    "Ru": 101.07,
+    "Rh": 102.9055,
+    "Pd": 106.42,
+    "Ag": 107.8682,
+    "Cd": 112.411,
+    "In": 114.818,
+    "Sn": 118.710,
+    "Sb": 121.760,
+    "Te": 127.60,
+    "I": 126.90447,
+    "Xe": 131.29,
+    "Cs": 132.90543,
+    "Ba": 137.327,
+    "Hf": 178.49,
+    "Ta": 180.9479,
+    "W": 183.84,
+    "Re": 186.207,
+    "Os": 190.23,
+    "Ir": 192.217,
+    "Pt": 195.08,
+    "Au": 196.96654,
+    "Hg": 200.59,
+    "Tl": 204.3833,
+    "Pb": 207.2,
+    "Bi": 208.98037,
+    "Po": 209.0,
+    "At": 210.0,
+    "Rn": 222.0,
+    "Fr": 223.0,
+    "Ra": 226.0254,
+    "Rf": 261.0,
+    "Db": 262,
+    "Sg": 266,
+    "Bh": 262,
+    "Hs": 265,
 }
 
 
@@ -105,6 +135,60 @@ continue_program = True
 def print_chemical_reaction(reactants, products):
     string = " + ".join([r.chemical for r in reactants]) + "  ->  " + " + ".join([p.chemical for p in products])
     print(string)
+
+
+def visual_to_chem(chem, ignore_use_subscript=False):
+    if ignore_use_subscript or not USE_SUBSCRIPT: return chem
+    amount = 1
+    a = ""
+    for m in chem:
+        if not m.isdigit():
+            break
+        a += m
+        amount = int(a)
+    chem = chem[len(a):]
+    chem = chem.replace("\u2080", "0")
+    chem = chem.replace("\u2081", "1")
+    chem = chem.replace("\u2082", "2")
+    chem = chem.replace("\u2083", "3")
+    chem = chem.replace("\u2084", "4")
+    chem = chem.replace("\u2085", "5")
+    chem = chem.replace("\u2086", "6")
+    chem = chem.replace("\u2087", "7")
+    chem = chem.replace("\u2088", "8")
+    chem = chem.replace("\u2089", "9")
+    if amount == 1:
+        return chem
+    return f"{amount}{chem}"
+
+
+def chem_to_visual(chem):
+    if not USE_SUBSCRIPT: return chem
+    amount = 1
+    a = ""
+    for m in chem:
+        if not m.isdigit():
+            break
+        a += m
+        amount = int(a)
+    chem = chem[len(a):]
+    chem = chem.replace("0", "\u2080")
+    chem = chem.replace("1", "\u2081")
+    chem = chem.replace("2", "\u2082")
+    chem = chem.replace("3", "\u2083")
+    chem = chem.replace("4", "\u2084")
+    chem = chem.replace("5", "\u2085")
+    chem = chem.replace("6", "\u2086")
+    chem = chem.replace("7", "\u2087")
+    chem = chem.replace("8", "\u2088")
+    chem = chem.replace("9", "\u2089")
+    if amount == 1:
+        return chem
+    return f"{amount}{chem}"
+
+
+def convert_shifted(string):
+    return string.replace("=", "0").replace("!", "1").replace('"', "2").replace("#", "3").replace("¤", "4").replace("%", "5").replace("&", "6").replace("/", "7").replace("(", "8").replace(")", "9")
 
 
 def split_chemical_in_parts(chemical: str):
@@ -245,6 +329,9 @@ class Molecule:
     def is_fully_defined(self):
         return self.chemical and self.mass != -1 and self.molarmass != 0 and self.mol != -1
 
+    def is_completely_undefined(self):
+        return (not self.chemical) and self.mass == -1 and self.molarmass == 0 and self.mol == -1
+
     def gather_components(self):
         self.components = {}
         if self.chemical == "":
@@ -300,16 +387,23 @@ class Molecule:
         elif self.mol != -1:
             self.mass = self.mol*self.molarmass
 
+    def reset(self):
+        self.chemical = ""
+        self.mass = -1
+        self.molarmass = 0
+        self.mol = -1
+        self.components = {}
+
     def update(self):
         self.gather_components()
         self.calculate_molarmass()
         self.try_calculate_mass_or_mol()
 
     def get_SimpleGUI_objects(self):
-        return sg.Input(self.chemical, size=(16, 1), k=self.key),\
-               sg.Input(f"{self.get_mass_string()}", size=(16, 1), k=f"{self.key}m"),\
-               sg.T(f"{self.get_molarmass_string()}", size=(16, 1), k=f"{self.key}M"),\
-               sg.Input(f"{self.get_mol_string()}", size=(16, 1), k=f"{self.key}n")
+        return sg.Input(chem_to_visual(self.chemical), size=(BASE_LEN, 1), k=self.key, font=chemfont, enable_events=True),\
+               sg.Input(f"{self.get_mass_string()}", size=(MONO_LEN, 1), k=f"{self.key}m"),\
+               sg.T(f"{self.get_molarmass_string()}", size=(MONO_LEN, 1), k=f"{self.key}M"),\
+               sg.Input(f"{self.get_mol_string()}", size=(MONO_LEN, 1), k=f"{self.key}n")
 
 
 reactants = []
@@ -320,6 +414,10 @@ class Window:
     def __init__(self, reactants=[], products=[]):
         self.reactants = reactants
         self.products = products
+
+        self.reactants += [Molecule(key=len(self.reactants)+i) for i in range(max(0, 3 - len(self.reactants)))]
+        self.products += [Molecule(key=len(self.reactants)+i) for i in range(max(0, 3 - len(self.products)))]
+
         self.values = None
 
         self.should_exit = False
@@ -336,10 +434,22 @@ class Window:
         self.loop()
 
     def add_reactant(self, chemical=""):
+        for r in self.reactants:
+            if r.is_completely_undefined():
+                r.chemical = chemical
+                r.update()
+                self.write_molecules()
+                return
         self.reactants.append(Molecule(chemical=chemical, key=len(self.reactants) + len(self.products)))
         self.restart()
 
     def add_product(self, chemical=""):
+        for p in self.products:
+            if p.is_completely_undefined():
+                p.chemical = chemical
+                p.update()
+                self.write_molecules()
+                return
         self.products.append(Molecule(chemical=chemical, key=len(self.reactants) + len(self.products)))
         self.restart()
 
@@ -349,10 +459,10 @@ class Window:
 
     def redefine_raw_layout(self):
         self.raw_layout = [[None, sg.T("", k="MissingReactants", size=(16, 1)), sg.Input("", k="ReactantInput", size=(16, 1), background_color=input_background_color), sg.T("Reactants", enable_events=True, k="addReactant"), sg.Text("|"), sg.T("Products", enable_events=True, k="addProduct"), sg.Input("", k="ProductInput", size=(16, 1), background_color=input_background_color), sg.T("", k="MissingProducts", size=(16, 1))],
-                           [sg.T("Molecules:"), None, None, None, sg.Text("->"), None, None, None],
-                           [sg.T("m (g)    :"), None, None, None, sg.Text("|"), None, None, None],
-                           [sg.T("M (g/mol):"), None, None, None, sg.Text("|"), None, None, None],
-                           [sg.T("n (mol)  :"), None, None, None, sg.Text("|"), None, None, None]]
+                           [sg.T("Molecules:", font=mono), None, None, None, sg.Text("->"), None, None, None],
+                           [sg.T("m (g)    :", font=mono), None, None, None, sg.Text("|"), None, None, None],
+                           [sg.T("M (g/mol):", font=mono), None, None, None, sg.Text("|"), None, None, None],
+                           [sg.T("n (mol)  :", font=mono), None, None, None, sg.Text("|"), None, None, None]]
         i = 4  # i should be equal to the index of the dividing line between reactants and products
         for m in self.reactants:
             if self.raw_layout[1][i-1] is not None:
@@ -378,12 +488,13 @@ class Window:
                     if r == p or p.chemical == "":
                         continue
                     p.mol = r.mol * (p.amount / r.amount)
+                    p.try_calculate_mass_or_mol()
                 break
         self.write_molecules()
 
     def write_molecules(self):
         for r in self.reactants + self.products:
-            self.win[r.key](value=r.chemical)
+            self.win[r.key](value=chem_to_visual(r.chemical))
             self.win[f"{r.key}m"](value=r.get_mass_string())
             self.win[f"{r.key}M"](value=r.get_molarmass_string())
             self.win[f"{r.key}n"](value=r.get_mol_string())
@@ -391,7 +502,10 @@ class Window:
     def save_stuff(self):
         try:
             for r in self.reactants + self.products:
-                r.chemical = self.values[r.key]
+                if CONVERT_SHIFTED:
+                    r.chemical = visual_to_chem(convert_shifted(self.values[r.key]))
+                else:
+                    r.chemical = visual_to_chem(self.values[r.key])
                 r.mass = float(self.values[f"{r.key}m"]) if self.values[f"{r.key}m"] else -1
                 r.mol = float(self.values[f"{r.key}n"]) if self.values[f"{r.key}n"] else -1
                 r.update()
@@ -402,17 +516,49 @@ class Window:
         for r in self.reactants + self.products:
             r.mass = -1
             r.mol = -1
-            self.win[f"{r.key}m"](value="")
-            self.win[f"{r.key}n"](value="")
+        self.write_molecules()
 
     def calculate_mass_diff(self):
-        return round(sum([r.mass for r in self.reactants]) - sum([p.mass for p in self.products]), 9)
+        return round(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants]) - sum([0 if p.is_completely_undefined() else p.mass for p in self.products]), 9)
 
     def calculate_reactants_mass(self):
-        return round(sum([r.mass for r in self.reactants]), 10)
+        return round(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants]), 10)
 
-    def mol_mass_defined(self):
-        return sum([r.mass == -1 or r.mol == -1 for r in self.reactants + self.products]) == 0
+    def mass_defined(self):
+        one_defined = False
+        for r in self.reactants + self.products:
+            if r.is_completely_undefined():
+                continue
+            one_defined = True
+        if one_defined:
+            return sum([r.mass == -1 and not r.is_completely_undefined() for r in self.reactants + self.products]) == 0
+        return False
+
+    def append_atom_reactant(self, atom):
+        if len(self.reactants) == 0:
+            self.add_reactant(atom)
+            return
+
+        if atom in self.reactants[-1].components:
+            self.reactants[-1].components[atom] += 1
+        else:
+            self.reactants[-1].components[atom] = 1
+        self.reactants[-1].redefine_chemical_string()
+        self.reactants[-1].update()
+        self.write_molecules()
+
+    def append_atom_product(self, atom):
+        if len(self.products) == 0:
+            self.add_product(atom)
+            return
+
+        if atom in self.products[-1].components:
+            self.products[-1].components[atom] += 1
+        else:
+            self.products[-1].components[atom] = 1
+        self.products[-1].redefine_chemical_string()
+        self.products[-1].update()
+        self.write_molecules()
 
     def restart(self):
         global reactants
@@ -436,21 +582,24 @@ class Window:
         return len(r_missing) == 0 and len(p_missing) == 0
 
     def loop(self):
+        global USE_SUBSCRIPT
+        global CONVERT_SHIFTED
         while not self.should_exit:
             event, self.values = self.win.read(timeout=200)
             if event == sg.WIN_CLOSED:
                 break
 
-            if event != "__TIMEOUT__":
+            elif event != "__TIMEOUT__":
                 print(event)
 
             if self.check_balanced():
-                self.win["BALANCED"].update(text_color="#5B7641")
+                self.win["BALANCED"].update(text_color=active_color)
             else:
-                self.win["BALANCED"].update(text_color="#323232")
+                self.win["BALANCED"].update(text_color=disabled_color)
 
-            if self.mol_mass_defined():
-                self.win["MassDiff"](value=self.calculate_mass_diff())
+            if self.mass_defined():
+                m_diff = self.calculate_mass_diff()
+                self.win["MassDiff"](value=m_diff if m_diff != 0 else "< 1e-9")
                 self.win["RMass"](value=f"{self.calculate_reactants_mass():.8f}g")
                 self.win["MassDiff"].update(text_color=sg.theme_text_color())
                 self.win["RMass"].update(text_color=sg.theme_text_color())
@@ -462,18 +611,41 @@ class Window:
                 break
             elif event == "__TIMEOUT__":
                 continue
+            elif isinstance(event, int):
+                self.write_molecules()
             elif event == "addReactant":
                 self.add_reactant()
             elif event == "addProduct":
                 self.add_product()
             elif event == "Update":
                 self.update_molecules()
+            elif event == "Switch":
+                r = self.reactants[:]
+                p = self.products[:]
+                self.reactants = p
+                self.products = r
+                if len(self.reactants) != len(self.products):
+                    self.restart()
+                    break
+                for ind, r in enumerate(self.reactants):
+                    k = r.key
+                    r.key = self.products[ind].key
+                    self.products[ind].key = k
+                self.write_molecules()
             elif event == "Reset":
-                self.reactants.clear()
-                self.products.clear()
-                self.restart()
+                if len(self.reactants) > DEFAULT_MOLECULE_AMOUNT or len(self.products) > DEFAULT_MOLECULE_AMOUNT:
+                    self.reactants.clear()
+                    self.products.clear()
+                    self.restart()
+                    break
+                for r in self.reactants + self.products:
+                    r.reset()
+                self.write_molecules()
             elif event == "ResetAmounts":
                 self.reset_amounts()
+            elif event == "Restart":
+                self.restart()
+                break
             elif event == "ReactantInput_enter":
                 self.add_reactant(self.values["ReactantInput"])
             elif event == "ProductInput_enter":
@@ -494,28 +666,71 @@ class Window:
                 self.save_stuff()
                 self.reactants, self.products = balance_reaction(self.reactants, self.products)
                 self.write_molecules()
+            elif event == "Reset balance":
+                for r in self.reactants + self.products:
+                    r.amount = 1
+                    r.redefine_chemical_string()
+                self.write_molecules()
+            elif event == "Subscript":
+                self.save_stuff()
+                USE_SUBSCRIPT = not USE_SUBSCRIPT
+                self.win["Subscript"].update(text_color=active_color if USE_SUBSCRIPT else disabled_color)
+                self.write_molecules()
+            elif event == "ShiftConvert":
+                CONVERT_SHIFTED = not CONVERT_SHIFTED
+                self.win["ShiftConvert"].update(text_color=active_color if CONVERT_SHIFTED else disabled_color)
+                self.save_stuff()
+                self.write_molecules()
             elif event[:10] == "rmolecule:":
                 chem = event[10:]
                 self.add_reactant(chem)
             elif event[:10] == "pmolecule:":
                 chem = event[10:]
                 self.add_product(chem)
+            elif event[:6] == "ratom:":
+                self.append_atom_reactant(event[6:])
+            elif event[:6] == "patom:":
+                self.append_atom_product(event[6:])
 
         self.win.close()
 
     def update_layout(self):
-        main_button_panel = [[sg.B("Update", enable_events=True, font=small_font, k="Update"), sg.T("BALANCED", font=small_font, k="BALANCED")],
-                             [sg.B("Reset", font=small_font), sg.B("ResetAmounts", font=small_font)]]
+        main_button_panel = [[sg.B("Update", font=small_font, k="Update"), sg.B("Switch", font=small_font), sg.T("BALANCED", font=small_font, k="BALANCED")],
+                             [sg.B("Reset", font=small_font), sg.B("ResetAmounts", font=small_font), sg.B("Restart", font=small_font)]]
         data_panel = [[sg.T("Mass diff (r-p): ", font=small_font), sg.T("0." + "0"*12, k="MassDiff", font=small_font), sg.T("|", font=small_font), sg.T("Mass (r): ", font=small_font), sg.T("0." + "0"*12, k="RMass", font=small_font)],
                      ]
         secondary_button_panel = [[sg.B("Double", font=small_font), sg.B("Auto-balance", font=small_font)],
-                                  [sg.B("Half", font=small_font)]]
-        layout_prefix = [[sg.Col(main_button_panel), sg.Col(data_panel), sg.Col(secondary_button_panel)]]
-        mol_tuple = (("O2", "CO2", "H2O", "N2", "CH4", "C2H6", "C3H8", "C4H10", "C5H12", "C6H14"),
-                     ("C7H16", "C8H18", "C9H20", "C10H22"))
-        r_add = [[sg.B(n, k=f"rmolecule:{n}", font=small_font) for n in i] for i in mol_tuple]
-        p_add = [[sg.B(n, k=f"pmolecule:{n}", font=small_font) for n in i] for i in mol_tuple]
-        layout_suffix = [[sg.Col([[sg.Col(r_add, justification="l", expand_x=True), sg.Col(p_add, justification="r", element_justification="r")]], expand_x=True, expand_y=True)]]
+                                  [sg.B("Half", font=small_font), sg.B("Reset balance", font=small_font)]]
+
+        tertiary_button_panel = [[sg.T("Subscript", k="Subscript", text_color=active_color if USE_SUBSCRIPT else disabled_color, font=small_font, enable_events=True)],
+                                 [sg.T("Shift Convert", k="ShiftConvert", text_color=active_color if USE_SUBSCRIPT else disabled_color, font=small_font, enable_events=True)]]
+
+        layout_prefix = [[sg.Col(main_button_panel), sg.Col(data_panel), sg.Col(secondary_button_panel), sg.Col(tertiary_button_panel)]]
+
+        mol_tuple = ()
+        if USE_MOLECULE_ADD:
+            mol_tuple = (("O2", "CO2", "H2O", "N2"),
+                         ("CH4", "C2H6", "C3H8", "C4H10", "C5H12", "C6H14", "C7H16", "C8H18", "C9H20", "C10H22"),
+                         ("CH3OH", "CH3CH2OH", "CH3CH2CH2OH"))
+
+        atom_tuple = ()
+        if USE_ATOM_ADD:
+            atom_tuple = (("H", "He"),
+                          ("Li", "Be", "B", "C", "N", "O", "F", "Ne"),
+                          ("Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar"),
+                          ("K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr"),
+                          ("Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe"),
+                          ("Cs", "Ba", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn"),
+                          ("Fr", "Ra", "Rf", "Db", "Sg", "Bh", "Hs"))
+
+        r_add = [[sg.B(chem_to_visual(n), k=f"rmolecule:{n}", font=small_chem) for n in i] for i in mol_tuple]
+        p_add = [[sg.B(chem_to_visual(n), k=f"pmolecule:{n}", font=small_chem) for n in i] for i in mol_tuple]
+
+        ar_add = [[sg.B(n, k=f"ratom:{n}", font=small_font) for n in i] for i in atom_tuple]
+        ap_add = [[sg.B(n, k=f"patom:{n}", font=small_font) for n in i] for i in atom_tuple]
+
+        layout_suffix = [[sg.Col([[sg.Col(r_add, justification="l", expand_x=True), sg.Col(p_add, justification="r", element_justification="r")]], expand_x=True, expand_y=True)],
+                         [sg.Col([[sg.Col(ar_add, justification="l", expand_x=True), sg.Col([[sg.T("|")] for _ in atom_tuple], expand_x=True), sg.Col(ap_add, justification="r", element_justification="r")]], expand_x=True, expand_y=True)]]
 
         self.layout = [[]]
         for i in range(len(self.raw_layout[0])):
