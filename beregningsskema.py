@@ -141,13 +141,13 @@ CAPITAL_E = True
 STRIP_TRAILING_ZEROS = True
 small_font_subtraction = 4
 units = (
-    Unit(Decimal(10**-12), "pg", "picograms"),
-    Unit(Decimal(10**-9), "ng", "nanograms"),
-    Unit(Decimal(10**-6), f"{chars['micro']}g", "micrograms"),
-    Unit(Decimal(10**-3), "mg", "milligrams"),
+    Unit(Decimal(10 ** -12), "pg", "picograms"),
+    Unit(Decimal(10 ** -9), "ng", "nanograms"),
+    Unit(Decimal(10 ** -6), f"{chars['micro']}g", "micrograms"),
+    Unit(Decimal(10 ** -3), "mg", "milligrams"),
     Unit(Decimal(1), "g", "grams"),
-    Unit(Decimal(10**3), "kg", "kilograms"),
-    Unit(Decimal(10**6), "t", "tons / megagrams"),
+    Unit(Decimal(10 ** 3), "kg", "kilograms"),
+    Unit(Decimal(10 ** 6), "t", "tons / megagrams"),
 )
 initial_unit = "g"  # Should be equal to the suffix of the unit that should initially be used.
 vol_units = (
@@ -159,6 +159,8 @@ initial_vol_unit = "L"
 fonttype = "DejaVu Sans"
 chemtype = "DejaVu Sans"
 monotype = "DejaVu Sans Mono"
+
+ELECTRON_VISUAL = "e\u207B"
 
 #   FONTS THAT I HAVE EXPERIMENTED WITH
 #   DejaVu Sans (Mono)
@@ -506,7 +508,7 @@ atom_list = [
 
 #  Defines the atomic weight of atoms used in calculations
 atom_dict = {}
-atom_units = {}
+atom_units = {ELECTRON_VISUAL: 0}
 for n_outer in atom_list:
     atom_units[n_outer.shorthand] = n_outer.atomic_weight
     atom_dict[n_outer.shorthand] = n_outer
@@ -609,9 +611,12 @@ def visual_to_chem(chem, ignore_use_subscript=False):
             break
         a += m
         amount = int(a)
-    chem = chem[len(a):].replace("\u2080", "0").replace("\u2081", "1").replace("\u2082", "2").replace("\u2083", "3") \
-        .replace("\u2084", "4").replace("\u2085", "5").replace("\u2086", "6").replace("\u2087", "7") \
-        .replace("\u2088", "8").replace("\u2089", "9")
+    chem = (chem[len(a):].replace("\u2080", "0").replace("\u2081", "1").replace("\u2082", "2").replace("\u2083", "3")
+            .replace("\u2084", "4").replace("\u2085", "5").replace("\u2086", "6").replace("\u2087", "7")
+            .replace("\u2088", "8").replace("\u2089", "9").replace("\u207A", "+").replace("\u207B", "-")
+            .replace("\u2070", "0").replace("\u00B9", "1").replace("\u00B2", "2").replace("\u00B3", "3")
+            .replace("\u2074", "4").replace("\u2075", "5").replace("\u2076", "6").replace("\u2077", "7")
+            .replace("\u2078", "8").replace("\u2079", "9"))
     if amount == 1:
         return chem
     return f"{amount}{chem}"
@@ -627,6 +632,19 @@ def chem_to_visual(chem):
             break
         a += m
         amount = int(a)
+    if "+" in chem or "-" in chem:
+        index_charge_start = 0
+        for index, i in enumerate(chem):
+            if i in ("+", "-"):
+                index_charge_start = index
+                break
+        pre_charge = chem[:index_charge_start]
+        post_charge = chem[index_charge_start:]
+        post_charge = (post_charge.replace("+", "\u207A")
+                       .replace("-", "\u207B").replace("0", "\u2070").replace("1", "\u00B9").replace("2", "\u00B2")
+                       .replace("3", "\u00B3").replace("4", "\u2074").replace("5", "\u2075").replace("6", "\u2076")
+                       .replace("7", "\u2077").replace("8", "\u2078").replace("9", "\u2079"))
+        chem = pre_charge + post_charge
     chem = chem[len(a):].replace("0", "\u2080").replace("1", "\u2081").replace("2", "\u2082") \
         .replace("3", "\u2083").replace("4", "\u2084").replace("5", "\u2085").replace("6", "\u2086") \
         .replace("7", "\u2087").replace("8", "\u2088").replace("9", "\u2089")
@@ -650,12 +668,13 @@ def split_chemical_in_parts(chemical: str):
             else:
                 splits.append(ind)
                 last_type = 0
-        else:  # Assuming c is a letter. i.e. not a special character
+        elif c.isalpha():
             if c.isupper():
                 splits.append(ind)
                 last_type = 1
-            else:
-                continue
+        elif c in ("+", "-"):
+            splits.append(ind)
+            last_type = 1
     if not splits:
         return []
 
@@ -723,11 +742,14 @@ def balance_reaction(reactants, products):
             else:
                 for m in r + p:
                     m.redefine_chemical_string()
-                print(time.time() - start_time)
                 return r, p
         states = new_states.copy()
         new_states.clear()
     return reactants, products
+
+
+def sum_charges(lst):
+    return sum([i.charge * i.amount for i in lst])
 
 
 def check_balanced(reactants, products):
@@ -761,6 +783,14 @@ def check_balanced(reactants, products):
             p_missing[i] = r_components[i]
         elif p_components[i] < r_components[i]:
             p_missing[i] = r_components[i] - p_components[i]
+
+    r_charge = sum_charges(reactants)
+    p_charge = sum_charges(products)
+    if r_charge != p_charge:
+        if r_charge < p_charge:
+            p_missing[ELECTRON_VISUAL] = p_charge - r_charge
+        else:
+            r_missing[ELECTRON_VISUAL] = r_charge - p_charge
 
     return r_missing, p_missing
 
@@ -811,6 +841,7 @@ class Molecule:
         self.mol = mol
         self.amount = 1
         self.key = key
+        self.charge = 0
         self.mass_is_user_defined = None
         self.mol_is_user_defined = None
         #  None = undefined
@@ -870,8 +901,8 @@ class Molecule:
             for ind, i in enumerate(self.chemical):
                 if digit_reader == ind - 1 and i.isdigit():
                     digit_reader = ind
-                    chem_parts[-1] = chem_parts[-1][:ind - last_significant_ind - 1] + i \
-                        + chem_parts[-1][ind - last_significant_ind - 1:]
+                    chem_parts[-1] = (chem_parts[-1][:ind - last_significant_ind - 1] + i
+                                      + chem_parts[-1][ind - last_significant_ind - 1:])
                     last_significant_ind = ind
                 if skip_levels != 0:
                     if i == "(":
@@ -905,10 +936,15 @@ class Molecule:
         prev_char = ""
         prev_char_duplicate = False
         self.amount = 1
+        self.charge = 0
         for i in split_chemical_in_parts(chem):
             if isinstance(i, int):
                 if prev_char == "":
                     self.amount = i
+                elif prev_char == "+":
+                    self.charge += i
+                elif prev_char == "-":
+                    self.charge -= i
                 elif self.components[prev_char] == 1:
                     self.components[prev_char] = i
                 elif prev_char_duplicate:
@@ -916,8 +952,11 @@ class Molecule:
                     prev_char_duplicate = False
                 else:
                     self.components[prev_char] += i
-                continue
-            if i not in self.components:
+            elif i == "+":
+                self.charge += 1
+            elif i == "-":
+                self.charge -= 1
+            elif i not in self.components:
                 self.components[i] = 1
             else:
                 self.components[i] += 1
@@ -952,10 +991,12 @@ class Molecule:
         return decimal_to_string(Decimal(self.mol), ROUND_TO_DIGITS_LONG)
 
     def redefine_chemical_string(self):
-        self.chemical = f"{self.amount if self.amount != 1 else ''}" + \
-                        "".join([f"{i}{self.components[i] if self.components[i] != 1 else ''}"
-                                 for i in self.components]) + \
-                        "".join([f"({i.chemical.lstrip(str(i.amount))}){i.amount}" for i in self.sub_chemicals])
+        self.chemical = (f"{self.amount if self.amount != 1 else ''}" +
+                         "".join([f"{i}{self.components[i] if self.components[i] != 1 else ''}"
+                                  for i in self.components]) +
+                         "".join([f"({i.chemical.lstrip(str(i.amount))}){i.amount}" for i in self.sub_chemicals]) +
+                         (f"{'+' if self.charge > 0 else ''}{self.charge if abs(self.charge) > 1 else ''}"
+                          if self.charge else ""))
 
     def try_calculate_mass_or_mol(self):
         if (self.mass == -1 and self.mol == -1) or not self.chemical:
@@ -1278,7 +1319,7 @@ class DissolvedWin:
         self.layout = [[sg.Col(top_settings)],
                        [left, sg.VSep(), right]]
         self.update_total_units()
-        self.win = sg.Window(title="Disolved", layout=self.layout, font=(fonttype, fontsize), finalize=True)
+        self.win = sg.Window(title="Dissolved", layout=self.layout, font=(fonttype, fontsize), finalize=True)
         self.loop()
 
     def update_total_units(self):
@@ -2110,8 +2151,8 @@ class Window:
             elif event == "-ANALYSE_ATOMS-":
                 ATOM_ADD_ELEMENTANALYZER_BUTTON = not ATOM_ADD_ELEMENTANALYZER_BUTTON
                 self.win["-ANALYSE_ATOMS-"].update(text_color=active_color
-                                                   if ATOM_ADD_ELEMENTANALYZER_BUTTON else
-                                                   disabled_color)
+                if ATOM_ADD_ELEMENTANALYZER_BUTTON else
+                disabled_color)
             elif event == "ElementAnalyzer":
                 ElementAnalyzer(self)
             elif event == "-UNIT_LIST-":
@@ -2125,7 +2166,7 @@ class Window:
                 self.should_push = True
                 self.update_unit()
 
-            elif event == "Disolved":
+            elif event == "Dissolved":
                 if DissolvedWin(win_object=self):
                     self.should_push = True
 
@@ -2182,7 +2223,7 @@ class Window:
                                                                  text_color=disabled_color)],
                       ]
         secondary_button_panel = [[sg.B("Double", font=small_font), sg.B("Auto-balance", font=small_font),
-                                   sg.B("Disolved", font=small_font)],
+                                   sg.B("Dissolved", font=small_font)],
                                   [sg.B("Half", font=small_font), sg.B("Reset balance", font=small_font),
                                    sg.B("ElementAnalyzer", font=small_font)]]
 
