@@ -1,18 +1,18 @@
 import PySimpleGUI as sg
 import copy
 
-sg.theme("DarkBrown4")
+sg.theme("LightBrown3")
 #sg.theme_text_color("#c73530")
 #sg.theme_text_color("#9eb6c5")
-sg.theme_text_color("#f82222")
-sg.theme_border_width(0)
-sg.theme_input_background_color("#2b2b2b")
-sg.theme_input_text_color("#c75450")
-sg.theme_button_color((sg.theme_text_color(), sg.theme_background_color()))
+#sg.theme_text_color("#f82222")
+#sg.theme_border_width(0)
+#sg.theme_input_background_color("#2b2b2b")
+#sg.theme_input_text_color("#c75450")
+#sg.theme_button_color((sg.theme_text_color(), sg.theme_background_color()))
 disabled_color = "#3c3f41"
 #active_color = "#499c54"
 active_color = "#c75450"
-input_background_color = "#333333"
+input_background_color = "#909090"
 
 DEFAULT_MOLECULE_AMOUNT = 3
 CONVERT_SHIFTED = True
@@ -138,7 +138,8 @@ def print_chemical_reaction(reactants, products):
 
 
 def visual_to_chem(chem, ignore_use_subscript=False):
-    if ignore_use_subscript or not USE_SUBSCRIPT: return chem
+    if ignore_use_subscript or not USE_SUBSCRIPT:
+        return chem
     amount = 1
     a = ""
     for m in chem:
@@ -147,6 +148,19 @@ def visual_to_chem(chem, ignore_use_subscript=False):
         a += m
         amount = int(a)
     chem = chem[len(a):]
+    chem = chem.replace("\u207A", "+")
+    chem = chem.replace("\u207B", "-")
+    chem = chem.replace("\u2070", "0")
+    chem = chem.replace("\u00B9", "1")
+    chem = chem.replace("\u00B2", "2")
+    chem = chem.replace("\u00B3", "3")
+    chem = chem.replace("\u2074", "4")
+    chem = chem.replace("\u2075", "5")
+    chem = chem.replace("\u2076", "6")
+    chem = chem.replace("\u2077", "7")
+    chem = chem.replace("\u2078", "8")
+    chem = chem.replace("\u2079", "9")
+
     chem = chem.replace("\u2080", "0")
     chem = chem.replace("\u2081", "1")
     chem = chem.replace("\u2082", "2")
@@ -163,7 +177,8 @@ def visual_to_chem(chem, ignore_use_subscript=False):
 
 
 def chem_to_visual(chem):
-    if not USE_SUBSCRIPT: return chem
+    if not USE_SUBSCRIPT:
+        return chem
     amount = 1
     a = ""
     for m in chem:
@@ -172,6 +187,28 @@ def chem_to_visual(chem):
         a += m
         amount = int(a)
     chem = chem[len(a):]
+    print(chem.__repr__())
+    if "+" in chem or "-" in chem:
+        index = 0
+        for ind, i in enumerate(chem):
+            if i in ("+", "-"):
+                index = ind
+        pre_sign = chem[:index]
+        post_include_sign = chem[index:]
+        print(post_include_sign)
+        post_include_sign = post_include_sign.replace("+", "\u207A")
+        post_include_sign = post_include_sign.replace("-", "\u207B")
+        post_include_sign = post_include_sign.replace("0", "\u2070")
+        post_include_sign = post_include_sign.replace("1", "\u00B9")
+        post_include_sign = post_include_sign.replace("2", "\u00B2")
+        post_include_sign = post_include_sign.replace("3", "\u00B3")
+        post_include_sign = post_include_sign.replace("4", "\u2074")
+        post_include_sign = post_include_sign.replace("5", "\u2075")
+        post_include_sign = post_include_sign.replace("6", "\u2076")
+        post_include_sign = post_include_sign.replace("7", "\u2077")
+        post_include_sign = post_include_sign.replace("8", "\u2078")
+        post_include_sign = post_include_sign.replace("9", "\u2079")
+        chem = pre_sign + post_include_sign
     chem = chem.replace("0", "\u2080")
     chem = chem.replace("1", "\u2081")
     chem = chem.replace("2", "\u2082")
@@ -188,7 +225,8 @@ def chem_to_visual(chem):
 
 
 def convert_shifted(string):
-    return string.replace("=", "0").replace("!", "1").replace('"', "2").replace("#", "3").replace("¤", "4").replace("%", "5").replace("&", "6").replace("/", "7").replace("(", "8").replace(")", "9")
+    return (string.replace("=", "0").replace("!", "1").replace('"', "2").replace("#", "3").replace("¤", "4")
+            .replace("%", "5").replace("&", "6").replace("/", "7").replace("(", "8").replace(")", "9"))
 
 
 def split_chemical_in_parts(chemical: str):
@@ -201,12 +239,14 @@ def split_chemical_in_parts(chemical: str):
             else:
                 splits.append(ind)
                 last_type = 0
-        else:  # Assuming c is a letter i.e. not a special character
+        elif c.isalpha():
             if c.isupper():
                 splits.append(ind)
                 last_type = 1
             else:
                 continue
+        else:  # Assume c is a special character. I.e. "-" or "+"
+            splits.append(ind)
     if not splits:
         return []
 
@@ -318,6 +358,7 @@ class Molecule:
         self.mol = mol
         self.amount = 1
         self.key = key
+        self.charge = 0
 
         self.molarmass = 0
         self.chemical = chemical
@@ -336,27 +377,38 @@ class Molecule:
         self.components = {}
         if self.chemical == "":
             return
-        l = ""
+        last_split = ""
         l_double = False
         self.amount = 1
+        self.charge = 0
         for i in split_chemical_in_parts(self.chemical):
             if isinstance(i, int):
-                if l == "":
+                if last_split == "":
                     self.amount = i
-                elif self.components[l] == 1:
-                    self.components[l] = i
+                elif last_split == "+":
+                    self.charge += i - 1  # Minus one beacuse an initial charge was given by the "+" itself
+                elif last_split == "-":
+                    self.charge -= i - 1  # Minus one beacuse an initial charge was given by the "-" itself
+                elif self.components[last_split] == 1:
+                    self.components[last_split] = i
                 elif l_double:
-                    self.components[l] += i - 1
+                    self.components[last_split] += i - 1
                     l_double = False
                 else:
-                    self.components[l] += i
+                    self.components[last_split] += i
                 continue
-            if i not in self.components:
+            if i == "+":
+                last_split = i
+                self.charge += 1
+            elif i == "-":
+                last_split = i
+                self.charge -= 1
+            elif i not in self.components:
                 self.components[i] = 1
             else:
                 self.components[i] += 1
                 l_double = True
-            l = i
+            last_split = i
 
     def calculate_molarmass(self):
         self.molarmass = sum([atom_units[n]*self.components[n] for n in self.components])
@@ -519,7 +571,8 @@ class Window:
         self.write_molecules()
 
     def calculate_mass_diff(self):
-        return round(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants]) - sum([0 if p.is_completely_undefined() else p.mass for p in self.products]), 9)
+        return round(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants])
+                     - sum([0 if p.is_completely_undefined() else p.mass for p in self.products]), 9)
 
     def calculate_reactants_mass(self):
         return round(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants]), 10)
@@ -695,17 +748,26 @@ class Window:
         self.win.close()
 
     def update_layout(self):
-        main_button_panel = [[sg.B("Update", font=small_font, k="Update"), sg.B("Switch", font=small_font), sg.T("BALANCED", font=small_font, k="BALANCED")],
-                             [sg.B("Reset", font=small_font), sg.B("ResetAmounts", font=small_font), sg.B("Restart", font=small_font)]]
-        data_panel = [[sg.T("Mass diff (r-p): ", font=small_font), sg.T("0." + "0"*12, k="MassDiff", font=small_font), sg.T("|", font=small_font), sg.T("Mass (r): ", font=small_font), sg.T("0." + "0"*12, k="RMass", font=small_font)],
-                     ]
+        main_button_panel = [[sg.B("Update", font=small_font, k="Update"), sg.B("Switch", font=small_font),
+                              sg.T("BALANCED", font=small_font, k="BALANCED")],
+                             [sg.B("Reset", font=small_font), sg.B("ResetAmounts", font=small_font),
+                              sg.B("Restart", font=small_font)]]
+        data_panel = [[sg.T("Mass diff (r-p): ", font=small_font), sg.T("0." + "0"*12, k="MassDiff", font=small_font),
+                       sg.T("|", font=small_font), sg.T("Mass (r): ", font=small_font), sg.T("0." + "0"*12, k="RMass",
+                                                                                             font=small_font)],
+                      ]
         secondary_button_panel = [[sg.B("Double", font=small_font), sg.B("Auto-balance", font=small_font)],
                                   [sg.B("Half", font=small_font), sg.B("Reset balance", font=small_font)]]
 
-        tertiary_button_panel = [[sg.T("Subscript", k="Subscript", text_color=active_color if USE_SUBSCRIPT else disabled_color, font=small_font, enable_events=True)],
-                                 [sg.T("Shift Convert", k="ShiftConvert", text_color=active_color if USE_SUBSCRIPT else disabled_color, font=small_font, enable_events=True)]]
+        tertiary_button_panel = [[sg.T("Subscript", k="Subscript",
+                                       text_color=active_color if USE_SUBSCRIPT else disabled_color,
+                                       font=small_font, enable_events=True)],
+                                 [sg.T("Shift Convert", k="ShiftConvert",
+                                       text_color=active_color if USE_SUBSCRIPT else disabled_color,
+                                       font=small_font, enable_events=True)]]
 
-        layout_prefix = [[sg.Col(main_button_panel), sg.Col(data_panel), sg.Col(secondary_button_panel), sg.Col(tertiary_button_panel)]]
+        layout_prefix = [[sg.Col(main_button_panel), sg.Col(data_panel), sg.Col(secondary_button_panel),
+                          sg.Col(tertiary_button_panel)]]
 
         mol_tuple = ()
         if USE_MOLECULE_ADD:
@@ -718,9 +780,12 @@ class Window:
             atom_tuple = (("H", "He"),
                           ("Li", "Be", "B", "C", "N", "O", "F", "Ne"),
                           ("Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar"),
-                          ("K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As", "Se", "Br", "Kr"),
-                          ("Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb", "Te", "I", "Xe"),
-                          ("Cs", "Ba", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po", "At", "Rn"),
+                          ("K", "Ca", "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn", "Ga", "Ge", "As",
+                           "Se", "Br", "Kr"),
+                          ("Rb", "Sr", "Y", "Zr", "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn", "Sb",
+                           "Te", "I", "Xe"),
+                          ("Cs", "Ba", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg", "Tl", "Pb", "Bi", "Po",
+                           "At", "Rn"),
                           ("Fr", "Ra", "Rf", "Db", "Sg", "Bh", "Hs"))
 
         r_add = [[sg.B(chem_to_visual(n), k=f"rmolecule:{n}", font=small_chem) for n in i] for i in mol_tuple]
@@ -729,12 +794,18 @@ class Window:
         ar_add = [[sg.B(n, k=f"ratom:{n}", font=small_font) for n in i] for i in atom_tuple]
         ap_add = [[sg.B(n, k=f"patom:{n}", font=small_font) for n in i] for i in atom_tuple]
 
-        layout_suffix = [[sg.Col([[sg.Col(r_add, justification="l", expand_x=True), sg.Col(p_add, justification="r", element_justification="r")]], expand_x=True, expand_y=True)],
-                         [sg.Col([[sg.Col(ar_add, justification="l", expand_x=True), sg.Col([[sg.T("|")] for _ in atom_tuple], expand_x=True), sg.Col(ap_add, justification="r", element_justification="r")]], expand_x=True, expand_y=True)]]
+        layout_suffix = [[sg.Col([[sg.Col(r_add, justification="l", expand_x=True), sg.Col(p_add, justification="r",
+                                                                                           element_justification="r")]],
+                                 expand_x=True, expand_y=True)],
+                         [sg.Col([[sg.Col(ar_add, justification="l", expand_x=True),
+                                   sg.Col([[sg.T("|")] for _ in atom_tuple], expand_x=True),
+                                   sg.Col(ap_add, justification="r", element_justification="r")]],
+                                 expand_x=True, expand_y=True)]]
 
         self.layout = [[]]
         for i in range(len(self.raw_layout[0])):
-            self.layout[0] += [sg.Col([[sg.Text("") if n[i] is None else n[i]] for n in self.raw_layout], element_justification="c")]
+            self.layout[0] += [sg.Col([[sg.Text() if n[i] is None else n[i]] for n in self.raw_layout],
+                                      element_justification="c")]
         self.layout = layout_prefix + self.layout + layout_suffix
 
 
