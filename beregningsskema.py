@@ -1,5 +1,6 @@
 import PySimpleGUI as sg
 from decimal import *
+from typing import Union
 import time
 import copy
 import math
@@ -214,6 +215,252 @@ class Atom:
 
     def __str__(self):
         return f"{self.shorthand} {self.atomic_weight} {self.name}"
+
+
+class Chemical:
+    def __init__(self, chemical="", mass=-1, mol=-1, key=None):
+        self.mass = mass
+        self.mol = mol
+        self.amount = 1
+        self.key = key
+        self.charge = 0
+        self.mass_is_user_defined = None
+        self.mol_is_user_defined = None
+        #  None = undefined
+        #  False = computer defined / calculated
+        #  True = user_defined
+
+        self.molarmass = 0
+        self.chemical = chemical
+        self.sub_chemicals = []
+        self.components = {}
+        self.all_components = {}
+
+        if chemical != "":
+            self.update()
+
+    def __repr__(self):
+        return f"Chemical({chem_to_visual(self.chemical)})"
+
+    def set_chemical(self, new_chemical):
+        if new_chemical == self.chemical:
+            return False
+        self.chemical = new_chemical
+        self.gather_components()
+        self.calculate_molarmass()
+        self.recalculate_mol()
+        return True
+
+    def set_mass(self, new_mass):
+        if new_mass == self.mass:
+            return False
+        self.mass = new_mass
+        self.recalculate_mol()
+        return True
+
+    def set_mol(self, new_mol):
+        if new_mol == self.mol:
+            return False
+        self.mol = new_mol
+        self.recalculate_mass()
+        return True
+
+    def is_fully_defined(self):
+        return self.chemical and self.mass != -1 and self.molarmass != 0 and self.mol != -1
+
+    def is_completely_undefined(self):
+        return (not self.chemical) and self.mass == -1 and self.molarmass == 0 and self.mol == -1
+
+    def gather_components(self):
+        self.components = {}
+        self.sub_chemicals.clear()
+        if self.chemical == "":
+            return
+
+        if "(" in self.chemical:
+            chem_parts = []
+            last_significant_ind = -1
+            digit_reader = -2
+            opened = False
+            skip_levels = 0
+            for ind, i in enumerate(self.chemical):
+                if digit_reader == ind - 1 and i.isdigit():
+                    digit_reader = ind
+                    chem_parts[-1] = (chem_parts[-1][:ind - last_significant_ind - 1] + i
+                                      + chem_parts[-1][ind - last_significant_ind - 1:])
+                    last_significant_ind = ind
+                if skip_levels != 0:
+                    if i == "(":
+                        skip_levels += 1
+                    elif i == ")":
+                        skip_levels -= 1
+                elif not opened:
+                    if i == "(" or ind + 1 == len(self.chemical):
+                        opened = True
+                        if len(chem_parts) != 0:
+                            chem_parts[0] += self.chemical[last_significant_ind + 1:
+                                                           ind if ind != len(self.chemical) - 1 else ind + 1].lstrip(
+                                ")")
+                        else:
+                            chem_parts.append(self.chemical[last_significant_ind + 1:ind].lstrip(")"))
+                        last_significant_ind = ind
+                elif i == ")":
+                    opened = False
+                    chem_parts.append(self.chemical[last_significant_ind + 1:ind].lstrip("("))
+                    digit_reader = ind
+                    last_significant_ind = ind
+                elif i == "(":
+                    skip_levels += 1
+
+            if len(chem_parts) > 1:
+                self.sub_chemicals = [Chemical(i) for i in chem_parts[1:]]
+
+            chem = chem_parts[0] if len(chem_parts) != 0 else self.chemical
+        else:
+            chem = self.chemical
+        prev_char = ""
+        prev_char_duplicate = False
+        self.amount = 1
+        self.charge = 0
+        for i in split_chemical_in_parts(chem):
+            if isinstance(i, int):
+                if prev_char == "":
+                    self.amount = i
+                elif prev_char == "+":
+                    self.charge += i - 1
+                elif prev_char == "-":
+                    self.charge -= i - 1
+                elif self.components[prev_char] == 1:
+                    self.components[prev_char] = i
+                elif prev_char_duplicate:
+                    self.components[prev_char] += i - 1
+                    prev_char_duplicate = False
+                else:
+                    self.components[prev_char] += i
+            elif i == "+":
+                self.charge += 1
+            elif i == "-":
+                self.charge -= 1
+            elif i not in self.components:
+                self.components[i] = 1
+            else:
+                self.components[i] += 1
+                prev_char_duplicate = True
+            prev_char = i
+
+    def get_all_components(self):
+        self.all_components = add_dicts(self.components,
+                                        *[multiply_dict(i.get_all_components(), i.amount)
+                                          for i in self.sub_chemicals])
+        return self.all_components
+
+    def calculate_molarmass(self):
+        self.molarmass = (sum([atom_units[n] * self.components[n] for n in self.components]) * (
+                1 / current_unit.multiplier)) \
+                         + sum([i.calculate_molarmass() * i.amount for i in self.sub_chemicals])
+        return self.molarmass
+
+    def get_molarmass_string(self):
+        if self.molarmass == 0:
+            return ""
+        return decimal_to_string(Decimal(self.molarmass), ROUND_TO_DIGITS_LONG)
+
+    def get_mass_string(self):
+        if self.mass == -1:
+            return ""
+        return decimal_to_string(Decimal(self.mass), ROUND_TO_DIGITS_LONG)
+
+    def get_mol_string(self):
+        if self.mol == -1:
+            return ""
+        return decimal_to_string(Decimal(self.mol), ROUND_TO_DIGITS_LONG)
+
+    def redefine_chemical_string(self):
+        self.chemical = (f"{self.amount if self.amount != 1 else ''}" +
+                         "".join([f"{i}{self.components[i] if self.components[i] != 1 else ''}"
+                                  for i in self.components]) +
+                         "".join([f"({i.chemical.lstrip(str(i.amount))}){i.amount}" for i in self.sub_chemicals]) +
+                         (f"{'+' if self.charge > 0 else ''}{self.charge if abs(self.charge) > 1 else ''}"
+                          if self.charge else ""))
+
+    def try_calculate_mass_or_mol(self):
+        if (self.mass == -1 and self.mol == -1) or not self.chemical:
+            return
+        elif self.mass != -1 and not self.mol_is_user_defined:
+            self.mol = self.mass / self.molarmass
+        elif self.mol != -1 and not self.mass_is_user_defined:
+            self.mass = self.mol * self.molarmass
+
+    def recalculate_mol(self):
+        self.mol = -1
+        self.try_calculate_mass_or_mol()
+
+    def recalculate_mass(self):
+        self.mass = -1
+        self.try_calculate_mass_or_mol()
+
+    def reset_amounts(self):
+        if self.mass == -1 and self.mol == -1:
+            return False
+        self.mass = -1
+        self.mol = -1
+        return True
+
+    def reset(self):
+        self.chemical = ""
+        self.reset_amounts()
+        self.sub_chemicals.clear()
+        self.molarmass = 0
+        self.components = {}
+        self.all_components = {}
+
+    def update(self):
+        self.gather_components()
+        self.calculate_molarmass()
+        self.try_calculate_mass_or_mol()
+
+    def get_sg_objects(self):
+        return sg.Input(chem_to_visual(self.chemical), size=(BASE_LEN, 1), k=self.key,
+                        font=chemfont, enable_events=True), \
+            sg.Input(f"{self.get_mass_string()}", size=(MONO_LEN, 1), k=f"{self.key}m",
+                     enable_events=True,
+                     text_color=user_defined_color if self.mass_is_user_defined else sg.theme_text_color()), \
+            sg.T(f"{self.get_molarmass_string()}", size=(MONO_LEN, 1), k=f"{self.key}M"), \
+            sg.Input(f"{self.get_mol_string()}", size=(MONO_LEN, 1), k=f"{self.key}n",
+                     enable_events=True,
+                     text_color=user_defined_color if self.mol_is_user_defined else sg.theme_text_color())
+
+    def get_oxidation_levels(self) -> dict:
+        """
+        Note that this function does not account for which atoms are attached to which.
+        This function will also fail if there are more than one atom with an unknown oxidation. When
+        this function fails {} is returned
+        """
+        oxidation_levels = {}
+        total_accounted_oxidation = 0
+        other_component = ""
+        self.get_all_components()
+        for component in self.all_components:
+            if component == "H" and len(self.all_components) != 1:
+                oxidation_levels["H"] = 1
+                total_accounted_oxidation += self.all_components["H"]
+            elif component == "O" and len(self.all_components) != 1:
+                oxidation_levels["O"] = -2
+                total_accounted_oxidation += self.all_components["O"] * -2
+            else:
+                if other_component:
+                    return {}
+                other_component = component
+
+        if not other_component:
+            if len(self.all_components) == 1:
+                for i in self.all_components:
+                    oxidation_levels[i] = 0
+                return oxidation_levels
+            return oxidation_levels
+        oxidation_levels[other_component] = ((self.charge - total_accounted_oxidation)
+                                             // self.all_components[other_component])
+        return oxidation_levels
 
 
 setcontext(Context(clamp=1 if SHOULD_CLAMP else 0, Emin=E_MIN, Emax=E_MAX, capitals=1 if CAPITAL_E else 0, prec=PREC))
@@ -554,7 +801,7 @@ def update_mol_over_vol():
 continue_program = True
 
 
-def make_round(num: Decimal, digits: int = ROUND_TO_DIGITS):
+def make_round(num: Decimal, digits: int = ROUND_TO_DIGITS) -> Decimal:
     if not num:
         return num
     log = abs(num).log10()
@@ -567,7 +814,7 @@ def make_round(num: Decimal, digits: int = ROUND_TO_DIGITS):
     return Decimal(out)
 
 
-def decimal_to_string(num: Decimal, digits: int = ROUND_TO_DIGITS, rounding=True):
+def decimal_to_string(num: Decimal, digits: int = ROUND_TO_DIGITS, rounding=True) -> str:
     if rounding:
         string = make_round(num, digits).__str__()
     else:
@@ -580,20 +827,10 @@ def decimal_to_string(num: Decimal, digits: int = ROUND_TO_DIGITS, rounding=True
     return string
 
 
-def chem_visual_amount_is_one(chem):
+def chem_visual_amount_is_one(chem) -> bool:
     if len(chem) < 2:
         return False
     return chem[0] == "1" and not chem[1].isdigit()
-
-
-def chem_name_to_components(name):
-    name = [m.split(",") for m in name.split("-")]
-    for ind, i in enumerate(name):
-        if i[0][0].isdigit():
-            for ind2, i2 in enumerate(i):
-                name[ind][ind2] = int(name[ind][ind2])
-        else:
-            name[ind] = name[ind][0]
 
 
 def print_chemical_reaction(reactants, products):
@@ -653,12 +890,12 @@ def chem_to_visual(chem):
     return f"{amount}{chem}"
 
 
-def convert_shifted(string):
+def convert_shifted(string) -> str:
     return string.replace("=", "0").replace("!", "1").replace('"', "2").replace("#", "3").replace("¤", "4"). \
         replace("%", "5").replace("&", "6").replace("/", "7").replace("(", "8").replace(")", "9")
 
 
-def split_chemical_in_parts(chemical: str):
+def split_chemical_in_parts(chemical: str) -> list:
     splits = []
     last_type = -1  # -1 for None, 0 for Number, 1 for Letter
     for ind, c in enumerate(chemical):
@@ -693,7 +930,7 @@ def split_chemical_in_parts(chemical: str):
     return output
 
 
-def balance_reaction(reactants, products):
+def balance_reaction(reactants: list[Chemical], products: list[Chemical]) -> tuple[list[Chemical], list[Chemical]]:
     start_time = time.time()
     states = [[reactants, products]]
     for r in states[0][0] + states[0][1]:
@@ -748,11 +985,11 @@ def balance_reaction(reactants, products):
     return reactants, products
 
 
-def sum_charges(lst):
+def sum_charges(lst: list[Chemical]) -> int:
     return sum([i.charge * i.amount for i in lst])
 
 
-def check_balanced(reactants, products):
+def check_balanced(reactants: list[Chemical], products: list[Chemical]) -> tuple[dict, dict]:
     r_components = {}
     p_components = {}
     # The following two for loops could theoretically be replaced by add_dicts() and multiply_dict()
@@ -795,7 +1032,7 @@ def check_balanced(reactants, products):
     return r_missing, p_missing
 
 
-def count_atoms(chems):
+def count_atoms(chems: Union[Chemical, list[Chemical], tuple[Chemical]]) -> dict:
     if not (isinstance(chems, list) or isinstance(chems, tuple)):
         chems = (chems,)
     counted = {}
@@ -808,16 +1045,14 @@ def count_atoms(chems):
     return counted
 
 
-def count_units(atoms: dict):
+def count_units(atoms: dict) -> int:
     out = 0
     for i in atoms:
         out += atoms[i] * atom_units[i]
     return out
 
 
-def add_dicts(*dicts):
-    if len(dicts) == 0:
-        return 0
+def add_dicts(*dicts) -> dict:
     out = dicts[0].copy()
     for n in dicts[1:]:
         for i in n:
@@ -828,222 +1063,165 @@ def add_dicts(*dicts):
     return out
 
 
-def multiply_dict(dict_1, multiplier):
+def multiply_dict(dict_1: dict, multiplier: int) -> dict:
     out = dict_1.copy()
     for i in out:
         out[i] *= multiplier
     return out
 
 
-class Molecule:
-    def __init__(self, chemical="", mass=-1, mol=-1, key=None):
-        self.mass = mass
-        self.mol = mol
-        self.amount = 1
-        self.key = key
-        self.charge = 0
-        self.mass_is_user_defined = None
-        self.mol_is_user_defined = None
-        #  None = undefined
-        #  False = computer defined / calculated
-        #  True = user_defined
+def int_divide_dict(dict_1: dict, divider: int) -> dict:
+    out = dict_1.copy()
+    for i in out:
+        out[i] //= divider
+    return out
 
-        self.molarmass = 0
-        self.chemical = chemical
-        self.sub_chemicals = []
-        self.components = {}
-        self.all_components = {}
 
-        if chemical != "":
-            self.update()
+def get_oxidation_list(lst: list[Chemical]) -> list[dict]:
+    return [element.get_oxidation_levels() for element in lst]
 
-    def set_chemical(self, new_chemical):
-        if new_chemical == self.chemical:
-            return False
-        self.chemical = new_chemical
-        self.gather_components()
-        self.calculate_molarmass()
-        self.recalculate_mol()
-        return True
 
-    def set_mass(self, new_mass):
-        if new_mass == self.mass:
-            return False
-        self.mass = new_mass
-        self.recalculate_mol()
-        return True
+def reactant_surcharge(reactants: list[Chemical], products: list[Chemical]) -> int:
+    return sum_charges(reactants) - sum_charges(products)
 
-    def set_mol(self, new_mol):
-        if new_mol == self.mol:
-            return False
-        self.mol = new_mol
-        self.recalculate_mass()
-        return True
 
-    def is_fully_defined(self):
-        return self.chemical and self.mass != -1 and self.molarmass != 0 and self.mol != -1
+def get_coefficients_of_chemicals_in_redox_reaction(reactants: list[Chemical], products: list[Chemical]) -> dict:
+    """
+    Returns the coefficients belonging to Chemicals in a redox reaction. This function fails if
+    there are two of the same atom with differents oxidation levels on a single side
 
-    def is_completely_undefined(self):
-        return (not self.chemical) and self.mass == -1 and self.molarmass == 0 and self.mol == -1
+    When the function fails {} is returned
 
-    def gather_components(self):
-        self.components = {}
-        self.sub_chemicals.clear()
-        if self.chemical == "":
-            return
+    :return: a dict of the coefficients. -> {Chemical("MnO-"): 3, Chemical("SO3-2"): 2, ...}
+        reactants and products are returned in the same dict.
+    """
+    reactants_oxidation = get_oxidation_list(reactants)
+    products_oxidation = get_oxidation_list(products)
+    oxidised = ""
+    oxidised_amount = 0
+    reduced = ""
+    reduced_amount = 0
 
-        if "(" in self.chemical:
-            chem_parts = []
-            last_significant_ind = -1
-            digit_reader = -2
-            opened = False
-            skip_levels = 0
-            for ind, i in enumerate(self.chemical):
-                if digit_reader == ind - 1 and i.isdigit():
-                    digit_reader = ind
-                    chem_parts[-1] = (chem_parts[-1][:ind - last_significant_ind - 1] + i
-                                      + chem_parts[-1][ind - last_significant_ind - 1:])
-                    last_significant_ind = ind
-                if skip_levels != 0:
-                    if i == "(":
-                        skip_levels += 1
-                    elif i == ")":
-                        skip_levels -= 1
-                elif not opened:
-                    if i == "(" or ind + 1 == len(self.chemical):
-                        opened = True
-                        if len(chem_parts) != 0:
-                            chem_parts[0] += self.chemical[last_significant_ind + 1:
-                                                           ind if ind != len(self.chemical) - 1 else ind + 1].lstrip(
-                                ")")
-                        else:
-                            chem_parts.append(self.chemical[last_significant_ind + 1:ind].lstrip(")"))
-                        last_significant_ind = ind
-                elif i == ")":
-                    opened = False
-                    chem_parts.append(self.chemical[last_significant_ind + 1:ind].lstrip("("))
-                    digit_reader = ind
-                    last_significant_ind = ind
-                elif i == "(":
-                    skip_levels += 1
+    for reactant_oxidation_dict in reactants_oxidation:
+        for reacting_atom in reactant_oxidation_dict:
+            for product_oxidation_dict in products_oxidation:
+                for produced_atom in product_oxidation_dict:
+                    if reacting_atom == produced_atom:
+                        difference = product_oxidation_dict[produced_atom] - reactant_oxidation_dict[reacting_atom]
+                        if oxidised == reacting_atom or reduced == reacting_atom:
+                            return {}
+                        if difference > 0:
+                            oxidised = reacting_atom
+                            oxidised_amount = difference
+                        elif difference < 0:
+                            reduced = reacting_atom
+                            reduced_amount = abs(difference)
 
-            if len(chem_parts) > 1:
-                self.sub_chemicals = [Molecule(i) for i in chem_parts[1:]]
+    final_coefficients = {}
+    max_num_in_one = 1
+    for chemical in reactants + products:
+        final_coefficients[chemical] = 1
+        if oxidised in chemical.all_components:
+            max_num_in_one *= chemical.components[oxidised]
+        elif reduced in chemical.all_components:
+            max_num_in_one *= chemical.components[reduced]
 
-            chem = chem_parts[0] if len(chem_parts) != 0 else self.chemical
-        else:
-            chem = self.chemical
-        prev_char = ""
-        prev_char_duplicate = False
-        self.amount = 1
-        self.charge = 0
-        for i in split_chemical_in_parts(chem):
-            if isinstance(i, int):
-                if prev_char == "":
-                    self.amount = i
-                elif prev_char == "+":
-                    self.charge += i
-                elif prev_char == "-":
-                    self.charge -= i
-                elif self.components[prev_char] == 1:
-                    self.components[prev_char] = i
-                elif prev_char_duplicate:
-                    self.components[prev_char] += i - 1
-                    prev_char_duplicate = False
-                else:
-                    self.components[prev_char] += i
-            elif i == "+":
-                self.charge += 1
-            elif i == "-":
-                self.charge -= 1
-            elif i not in self.components:
-                self.components[i] = 1
-            else:
-                self.components[i] += 1
-                prev_char_duplicate = True
-            prev_char = i
+    for chemical in reactants + products:
+        if oxidised in chemical.all_components:
+            final_coefficients[chemical] = reduced_amount * max_num_in_one // chemical.all_components[oxidised]
+        elif reduced in chemical.all_components:
+            final_coefficients[chemical] = oxidised_amount * max_num_in_one // chemical.all_components[reduced]
 
-    def get_all_components(self):
-        self.all_components = add_dicts(self.components,
-                                        *[multiply_dict(i.get_all_components(), i.amount)
-                                          for i in self.sub_chemicals])
-        return self.all_components
+    max_coefficient = max([final_coefficients[i] for i in final_coefficients])
+    for i in range(max_coefficient, 1, -1):
+        i_is_common = True
+        for key in final_coefficients:
+            coefficient = final_coefficients[key]
+            if coefficient % i != 0:
+                i_is_common = False
+                break
+        if i_is_common:
+            for key in final_coefficients:
+                final_coefficients[key] //= i
+            break
 
-    def calculate_molarmass(self):
-        self.molarmass = (sum([atom_units[n] * self.components[n] for n in self.components]) * (
-                1 / current_unit.multiplier)) \
-                         + sum([i.calculate_molarmass() * i.amount for i in self.sub_chemicals])
-        return self.molarmass
+    return final_coefficients
 
-    def get_molarmass_string(self):
-        if self.molarmass == 0:
-            return ""
-        return decimal_to_string(Decimal(self.molarmass), ROUND_TO_DIGITS_LONG)
 
-    def get_mass_string(self):
-        if self.mass == -1:
-            return ""
-        return decimal_to_string(Decimal(self.mass), ROUND_TO_DIGITS_LONG)
+def add_chemical_to_chem_list(chem_list: list[Chemical], chemical: Chemical, inplace: bool = True) -> list[Chemical]:
+    chemical.get_all_components()
+    if not inplace:
+        chem_list = copy.copy(chem_list)
+    for i in chem_list:
+        if i.get_all_components() == chemical.all_components and i.charge == chemical.charge:
+            i.amount += chemical.amount
+            i.redefine_chemical_string()
+            return chem_list
+    chem_list.append(chemical)
+    return chem_list
 
-    def get_mol_string(self):
-        if self.mol == -1:
-            return ""
-        return decimal_to_string(Decimal(self.mol), ROUND_TO_DIGITS_LONG)
 
-    def redefine_chemical_string(self):
-        self.chemical = (f"{self.amount if self.amount != 1 else ''}" +
-                         "".join([f"{i}{self.components[i] if self.components[i] != 1 else ''}"
-                                  for i in self.components]) +
-                         "".join([f"({i.chemical.lstrip(str(i.amount))}){i.amount}" for i in self.sub_chemicals]) +
-                         (f"{'+' if self.charge > 0 else ''}{self.charge if abs(self.charge) > 1 else ''}"
-                          if self.charge else ""))
+def add_hydrons_or_hydroxide_to_reaction(reactants: list[Chemical], products: list[Chemical],
+                                         acidic=False, basic=False)\
+        -> tuple[list[Chemical], list[Chemical]]:
+    surcharge = reactant_surcharge(reactants, products)
+    if acidic:
+        if surcharge > 0:
+            products = add_chemical_to_chem_list(products, Chemical(f"{surcharge}H+"), inplace=False)
+        elif surcharge < 0:
+            reactants = add_chemical_to_chem_list(reactants, Chemical(f"{abs(surcharge)}H+"), inplace=False)
+    elif basic:
+        if surcharge < 0:
+            products = add_chemical_to_chem_list(products, Chemical(f"{surcharge}OH-"), inplace=False)
+        elif surcharge > 0:
+            reactants = add_chemical_to_chem_list(reactants, Chemical(f"{abs(surcharge)}OH-"), inplace=False)
+    return reactants, products
 
-    def try_calculate_mass_or_mol(self):
-        if (self.mass == -1 and self.mol == -1) or not self.chemical:
-            return
-        elif self.mass != -1 and not self.mol_is_user_defined:
-            self.mol = self.mass / self.molarmass
-        elif self.mol != -1 and not self.mass_is_user_defined:
-            self.mass = self.mol * self.molarmass
 
-    def recalculate_mol(self):
-        self.mol = -1
-        self.try_calculate_mass_or_mol()
+def try_add_dihydrogen_monoxide(reactants: list[Chemical], products: list[Chemical])\
+        -> tuple[list[Chemical], list[Chemical]]:
+    """
+    When this function fails it returns the same lists as were input
+    The function will fail if:
+        There are other balancing incosistencies besides hydrogen and oxygen
+        If it is not possible to add hydrogen and oxygen to one side, so that it is all balanced.
+        The reaction is already balanced
+        There is a charge imbalance
+    """
+    r_missing, p_missing = check_balanced(reactants, products)
+    reactant_side = None
+    if len(r_missing) == 2:
+        reactant_side = True
+    if len(p_missing) == 2:
+        if reactant_side:
+            return reactants, products
+        reactant_side = False
+    if reactant_side is None:
+        return reactants, products
+    missing_used = r_missing if reactant_side else p_missing
+    for i in missing_used:
+        if i not in ("H", "O"):
+            return reactants, products
+    oxygen_atoms = missing_used["O"]
+    if oxygen_atoms * 2 != missing_used["H"]:
+        return reactants, products
+    if reactant_side:
+        reactants = add_chemical_to_chem_list(reactants, Chemical(f"{oxygen_atoms}H2O"))
+    else:
+        products = add_chemical_to_chem_list(products, Chemical(f"{oxygen_atoms}H2O"))
+    return reactants, products
 
-    def recalculate_mass(self):
-        self.mass = -1
-        self.try_calculate_mass_or_mol()
 
-    def reset_amounts(self):
-        if self.mass == -1 and self.mol == -1:
-            return False
-        self.mass = -1
-        self.mol = -1
-        return True
-
-    def reset(self):
-        self.chemical = ""
-        self.reset_amounts()
-        self.sub_chemicals.clear()
-        self.molarmass = 0
-        self.components = {}
-        self.all_components = {}
-
-    def update(self):
-        self.gather_components()
-        self.calculate_molarmass()
-        self.try_calculate_mass_or_mol()
-
-    def get_sg_objects(self):
-        return sg.Input(chem_to_visual(self.chemical), size=(BASE_LEN, 1), k=self.key,
-                        font=chemfont, enable_events=True), \
-            sg.Input(f"{self.get_mass_string()}", size=(MONO_LEN, 1), k=f"{self.key}m",
-                     enable_events=True,
-                     text_color=user_defined_color if self.mass_is_user_defined else sg.theme_text_color()), \
-            sg.T(f"{self.get_molarmass_string()}", size=(MONO_LEN, 1), k=f"{self.key}M"), \
-            sg.Input(f"{self.get_mol_string()}", size=(MONO_LEN, 1), k=f"{self.key}n",
-                     enable_events=True,
-                     text_color=user_defined_color if self.mol_is_user_defined else sg.theme_text_color())
+def balance_redox(reactants: list[Chemical], products: list[Chemical], acidic=False, basic=False)\
+        -> tuple[list[Chemical], list[Chemical]]:
+    coefficients = get_coefficients_of_chemicals_in_redox_reaction(reactants, products)
+    print(reactants, products)
+    for key in coefficients:
+        key.amount = coefficients[key]
+        key.redefine_chemical_string()
+    reactants, products = add_hydrons_or_hydroxide_to_reaction(reactants, products, acidic=acidic, basic=basic)
+    reactants, products = try_add_dihydrogen_monoxide(reactants, products)
+    return reactants, products
 
 
 class ElementAnalyzer:
@@ -1332,7 +1510,7 @@ class DissolvedWin:
             return
         self.total_units = count_units(self.side_vals)
 
-    def define_mass_from_mol_volume(self, key, left=True):
+    def define_mass_from_mol_volume(self, key, left: bool = True) -> bool:
         desired = sg.popup_get_text(f"Please input the desired {mol_over_vol.suffix}")
         try:
             desired_dec = Decimal(desired)
@@ -1619,9 +1797,9 @@ class Window:
         self.reactants = reactants
         self.products = products
 
-        self.reactants += [Molecule(key=len(self.reactants) + i)
+        self.reactants += [Chemical(key=len(self.reactants) + i)
                            for i in range(max(0, DEFAULT_MOLECULE_AMOUNT - len(self.reactants)))]
-        self.products += [Molecule(key=len(self.reactants) + i)
+        self.products += [Chemical(key=len(self.reactants) + i)
                           for i in range(max(0, DEFAULT_MOLECULE_AMOUNT - len(self.products)))]
 
         if SCROLLABLE is None:
@@ -1653,23 +1831,23 @@ class Window:
 
         self.loop()
 
-    def add_reactant(self, chemical: str = ""):
+    def add_reactant(self, chemical: str = "") -> bool:
         for r in [self.reactants[self.active_reactant]] + self.reactants:  # A bit of a dirty solution
             if r.is_completely_undefined():
                 if r.set_chemical(chemical):
                     self.should_push = True
                 return False
-        self.reactants.append(Molecule(chemical=chemical, key=len(self.reactants) + len(self.products)))
+        self.reactants.append(Chemical(chemical=chemical, key=len(self.reactants) + len(self.products)))
         self.restart()
         return True
 
-    def add_product(self, chemical: str = ""):
+    def add_product(self, chemical: str = "") -> bool:
         for p in [self.products[self.active_product]] + self.products:  # A bit of a dirty solution
             if p.is_completely_undefined():
                 if p.set_chemical(chemical):
                     self.should_push = True
                 return False
-        self.products.append(Molecule(chemical=chemical, key=len(self.reactants) + len(self.products)))
+        self.products.append(Chemical(chemical=chemical, key=len(self.reactants) + len(self.products)))
         self.restart()
         return True
 
@@ -1852,30 +2030,31 @@ class Window:
             r.mass_is_user_defined = None
             r.mol_is_user_defined = None
 
-    def calculate_mass_diff(self):
+    def calculate_mass_diff(self) -> Decimal:
         return Decimal(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants])) - \
             Decimal(sum([0 if p.is_completely_undefined() else p.mass for p in self.products]))
 
-    def calculate_reactants_mass(self):
+    def calculate_reactants_mass(self) -> Decimal:
         return Decimal(sum([0 if r.is_completely_undefined() else r.mass for r in self.reactants]))
 
-    def calculate_products_mass(self):
-        return sum([0 if p.is_completely_undefined() else p.mass for p in self.products])
+    def calculate_products_mass(self) -> Decimal:
+        return Decimal(sum([0 if p.is_completely_undefined() else p.mass for p in self.products]))
 
-    def calculate_reactants_units(self):
-        return sum([r.molarmass * r.amount for r in self.reactants])
+    def calculate_reactants_units(self) -> Decimal:
+        return Decimal(sum([r.molarmass * r.amount for r in self.reactants]))
 
-    def calculate_products_units(self):
-        return sum([r.molarmass * r.amount for r in self.products])
+    def calculate_products_units(self) -> Decimal:
+        return Decimal(sum([r.molarmass * r.amount for r in self.products]))
 
-    def mass_defined(self):
+    def mass_defined(self) -> Union[bool, Decimal]:
         one_defined = False
         for r in self.reactants + self.products:
             if r.is_completely_undefined():
                 continue
             one_defined = True
         if one_defined:
-            return sum([r.mass == -1 and not r.is_completely_undefined() for r in self.reactants + self.products]) == 0
+            return Decimal(sum([r.mass == -1 and not r.is_completely_undefined()
+                                for r in self.reactants + self.products]) == 0)
         return False
 
     def append_atom_reactant(self, atom):
@@ -1917,7 +2096,7 @@ class Window:
         self.should_exit = True
         continue_program = True
 
-    def check_balanced(self, return_missing=False):
+    def check_balanced(self, return_missing=False) -> Union[bool, tuple[dict, dict]]:
         r_missing, p_missing = check_balanced(self.reactants, self.products)
         if return_missing:
             return r_missing, p_missing
@@ -1991,6 +2170,11 @@ class Window:
         p_val = chem_to_visual(p_val)
         if self.values["ProductInput"] != p_val:
             self.win["ProductInput"](value=p_val)
+
+    def fix_missing_keys(self):
+        """
+        TODO
+        """
 
     def sort_chemicals_by_key(self):
         def sort_func(r):
@@ -2132,6 +2316,13 @@ class Window:
                 self.reactants, self.products = balance_reaction(self.reactants, self.products)
                 self.sort_chemicals_by_key()
                 self.should_push = True
+            elif event == "Redox Auto-balance":
+                choice, _ = sg.Window("pH", [[sg.B("Acidic"), sg.B("Basic")]]).read(close=True)
+                self.reactants, self.products = balance_redox(self.reactants, self.products,
+                                                              acidic=choice == "Acidic",
+                                                              basic=choice == "Basic")
+                self.sort_chemicals_by_key()
+                self.should_push = True
             elif event == "Reset balance":
                 for r in self.reactants + self.products:
                     r.amount = 1
@@ -2151,8 +2342,8 @@ class Window:
             elif event == "-ANALYSE_ATOMS-":
                 ATOM_ADD_ELEMENTANALYZER_BUTTON = not ATOM_ADD_ELEMENTANALYZER_BUTTON
                 self.win["-ANALYSE_ATOMS-"].update(text_color=active_color
-                if ATOM_ADD_ELEMENTANALYZER_BUTTON else
-                disabled_color)
+                                                   if ATOM_ADD_ELEMENTANALYZER_BUTTON else
+                                                   disabled_color)
             elif event == "ElementAnalyzer":
                 ElementAnalyzer(self)
             elif event == "-UNIT_LIST-":
@@ -2223,6 +2414,7 @@ class Window:
                                                                  text_color=disabled_color)],
                       ]
         secondary_button_panel = [[sg.B("Double", font=small_font), sg.B("Auto-balance", font=small_font),
+                                   sg.B("Redox Auto-balance", font=small_font),
                                    sg.B("Dissolved", font=small_font)],
                                   [sg.B("Half", font=small_font), sg.B("Reset balance", font=small_font),
                                    sg.B("ElementAnalyzer", font=small_font)]]
@@ -2348,6 +2540,10 @@ class Window:
                                key="MainCol")]]
 
 
-while continue_program:
-    continue_program = False
-    Window(global_reactants, global_products)
+print(balance_redox([Chemical("SO3-2"), Chemical("MnO4-")], [Chemical("SO4-2"), Chemical("Mn+2")], acidic=True))
+
+
+if __name__ == '__main__':
+    while continue_program:
+        continue_program = False
+        Window(global_reactants, global_products)
