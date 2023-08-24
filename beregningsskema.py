@@ -380,8 +380,8 @@ class Chemical:
                          "".join([f"{i}{self.components[i] if self.components[i] != 1 else ''}"
                                   for i in self.components]) +
                          "".join([f"({i.chemical.lstrip(str(i.amount))}){i.amount}" for i in self.sub_chemicals]) +
-                         (f"{'+' if self.charge > 0 else ''}{self.charge if abs(self.charge) > 1 else ''}"
-                          if self.charge else ""))
+                         (f"{'+' if self.charge > 0 else ''}{'-' if self.charge < 0 else ''}"
+                          f"{abs(self.charge) if abs(self.charge) > 1 else ''}"))
 
     def try_calculate_mass_or_mol(self):
         if (self.mass == -1 and self.mol == -1) or not self.chemical:
@@ -1215,7 +1215,6 @@ def try_add_dihydrogen_monoxide(reactants: list[Chemical], products: list[Chemic
 def balance_redox(reactants: list[Chemical], products: list[Chemical], acidic=False, basic=False)\
         -> tuple[list[Chemical], list[Chemical]]:
     coefficients = get_coefficients_of_chemicals_in_redox_reaction(reactants, products)
-    print(reactants, products)
     for key in coefficients:
         key.amount = coefficients[key]
         key.redefine_chemical_string()
@@ -1831,7 +1830,7 @@ class Window:
 
         self.loop()
 
-    def add_reactant(self, chemical: str = "") -> bool:
+    def add_reactant(self, chemical: Union[str, Chemical] = "") -> bool:
         for r in [self.reactants[self.active_reactant]] + self.reactants:  # A bit of a dirty solution
             if r.is_completely_undefined():
                 if r.set_chemical(chemical):
@@ -1841,7 +1840,7 @@ class Window:
         self.restart()
         return True
 
-    def add_product(self, chemical: str = "") -> bool:
+    def add_product(self, chemical: Union[str, Chemical] = "") -> bool:
         for p in [self.products[self.active_product]] + self.products:  # A bit of a dirty solution
             if p.is_completely_undefined():
                 if p.set_chemical(chemical):
@@ -2171,10 +2170,6 @@ class Window:
         if self.values["ProductInput"] != p_val:
             self.win["ProductInput"](value=p_val)
 
-    def fix_missing_keys(self):
-        """
-        TODO
-        """
 
     def sort_chemicals_by_key(self):
         def sort_func(r):
@@ -2193,6 +2188,48 @@ class Window:
         self.update_mass_and_balance_vals()
         self.update_active_background_color()
         self.update_user_defined_color()
+
+    def replace_reactants_and_products(self, new_reactants: list[Chemical], new_products: list[Chemical]):
+        if len(new_reactants) > len(self.reactants) or len(new_products) > len(self.products):
+            self.reactants = new_reactants
+            self.products = new_products
+            for i, chem in enumerate(self.reactants + self.products):
+                chem.key = i
+            self.restart()
+            return True
+        for i in range(len(new_reactants)):
+            new_reactants[i].key = self.reactants[i].key
+            self.reactants[i] = new_reactants[i]
+        for i in range(len(new_reactants), len(self.reactants)):
+            self.reactants[i].reset()
+        for i in range(len(new_products)):
+            new_products[i].key = self.products[i].key
+            self.products[i] = new_products[i]
+        for i in range(len(new_products), len(self.products)):
+            self.products[i].reset()
+        return False
+
+
+    def copy_reactants_and_products(self):
+        new_r = []
+        new_p = []
+        for i in self.reactants:
+            if not i.is_completely_undefined():
+                new_r.append(copy.copy(i))
+        for i in self.products:
+            if not i.is_completely_undefined():
+                new_p.append(copy.copy(i))
+        return new_r, new_p
+
+    def redefine_all_chemical_strings(self):
+        for i in self.reactants + self.products:
+            i.redefine_chemical_string()
+
+    def all_is_undefined(self) -> bool:
+        for i in self.reactants + self.products:
+            if not i.is_completely_undefined():
+                return False
+        return True
 
     def loop(self):
         global USE_SUBSCRIPT
@@ -2317,12 +2354,17 @@ class Window:
                 self.sort_chemicals_by_key()
                 self.should_push = True
             elif event == "Redox Auto-balance":
-                choice, _ = sg.Window("pH", [[sg.B("Acidic"), sg.B("Basic")]]).read(close=True)
-                self.reactants, self.products = balance_redox(self.reactants, self.products,
-                                                              acidic=choice == "Acidic",
-                                                              basic=choice == "Basic")
-                self.sort_chemicals_by_key()
-                self.should_push = True
+                if not self.all_is_undefined():
+                    choice, _ = sg.Window("pH", [[sg.B("Acidic"), sg.B("Basic")]]).read(close=True)
+                    reacts, prods = self.copy_reactants_and_products()
+                    new_reactants, new_products = balance_redox(reacts, prods,
+                                                                acidic=choice == "Acidic",
+                                                                basic=choice == "Basic")
+                    if self.replace_reactants_and_products(new_reactants, new_products):
+                        break
+                    self.redefine_all_chemical_strings()
+                    self.sort_chemicals_by_key()
+                    self.should_push = True
             elif event == "Reset balance":
                 for r in self.reactants + self.products:
                     r.amount = 1
@@ -2538,9 +2580,6 @@ class Window:
                                scrollable=True if SCROLLABLE else False,
                                expand_y=True, expand_x=True, justification="c", element_justification="c",
                                key="MainCol")]]
-
-
-print(balance_redox([Chemical("SO3-2"), Chemical("MnO4-")], [Chemical("SO4-2"), Chemical("Mn+2")], acidic=True))
 
 
 if __name__ == '__main__':
