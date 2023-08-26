@@ -408,6 +408,7 @@ class Chemical:
 
     def reset(self):
         self.chemical = ""
+        self.charge = 0
         self.reset_amounts()
         self.sub_chemicals.clear()
         self.molarmass = 0
@@ -1510,7 +1511,14 @@ class DissolvedWin:
         self.total_units = count_units(self.side_vals)
 
     def define_mass_from_mol_volume(self, key, left: bool = True) -> bool:
-        desired = sg.popup_get_text(f"Please input the desired {mol_over_vol.suffix}")
+        button, values = sg.Window("Make a choice", layout=[
+            [sg.In(k="-DESIRED-")],
+            [sg.B("Alter mass"), sg.B("Alter volume"), sg.Push(), sg.B("Cancel")]
+        ],
+                                   font=(fonttype, fontsize)).read(close=True)
+        if button == "Cancel":
+            return False
+        desired = values["-DESIRED-"]
         try:
             desired_dec = Decimal(desired)
         except (InvalidOperation, TypeError):
@@ -1532,18 +1540,25 @@ class DissolvedWin:
             else:
                 return False
         if self.breakdown == "Chemical":
-            element_mass = element.molarmass
+            element_molarmass = element.molarmass
         else:
-            element_mass = atom_units[element]
-        mol_needed_of_element = desired_dec * self.volume * (current_vol_unit.multiplier / mol_over_vol.multiplier)
-        mass_from_element = mol_needed_of_element * element_mass
-        total_mass = mass_from_element / percent
-        if left:
-            self.mass = total_mass
+            element_molarmass = atom_units[element]
+
+        if button == "Alter mass":
+            mol_needed_of_element = desired_dec * self.volume * (current_vol_unit.multiplier / mol_over_vol.multiplier)
+            mass_from_element = mol_needed_of_element * element_molarmass
+            total_mass = mass_from_element / percent
+
+            if left:
+                self.mass = total_mass
+            else:
+                self.rmass = total_mass
+                self.define_ratio_from_rmass()
+            self.write_masses_and_ratio()
         else:
-            self.rmass = total_mass
-            self.define_ratio_from_rmass()
-        self.write_masses_and_ratio()
+            side_mass = self.mass if left else self.rmass
+            mol = side_mass * percent / element_molarmass
+            self.volume = mol / desired_dec
         self.update_all()
         return True
 
@@ -1628,7 +1643,11 @@ class DissolvedWin:
         self.write_win_val_but_not_if_zero("Mass_right", self.rmass)
         self.write_win_val_but_not_if_zero("Ratio", self.ratio)
 
+    def write_volume(self):
+        self.win["VolumeField"].update(value=self.volume)
+
     def update_all(self):
+        self.write_volume()
         self.update_rmass()
         self.update_one_over_ratio()
         self.update_bottom()
@@ -1747,8 +1766,7 @@ class DissolvedWin:
         return False
 
 
-global_reactants = []
-global_products = []
+global_all_reactions = [[[], []]]
 position = (None, None)
 win_size = (None, None)
 
@@ -1790,11 +1808,76 @@ def open_missing_menu(missing_dict, other_side_total_units=None):
             break
 
 
+class SingleChemicalWindow:
+    def __init__(self, chemical: Chemical = None):
+        if chemical is None:
+            self.chemical = Chemical()
+        else:
+            self.chemical = chemical
+
+        layout = [
+            [sg.T("Chemical:"), sg.In(size=(BASE_LEN, 1), k="-CHEMICAL-", enable_events=True)],
+            [sg.T(f"Mass {current_unit.suffix}:"), sg.In(size=(MONO_LEN, 1), k="-MASS-",
+                                                         enable_events=True)],
+            [sg.T(f"Molarmass {current_unit.suffix}/mol:"), sg.T(size=(MONO_LEN, 1), k="-MOLARMASS-",
+                                                                 enable_events=True)],
+            [sg.T(f"Mol:"), sg.In(size=(MONO_LEN, 1), k="-MOL-", enable_events=True)]
+        ]
+
+        self.window = sg.Window("SingleChemical", layout=layout, font=(fonttype, fontsize))
+
+        while True:
+            event, values = self.window.read()
+
+            if event == sg.WIN_CLOSED:
+                break
+            elif event == "-CHEMICAL-":
+                try:
+                    new_chem = visual_to_chem(values["-CHEMICAL-"])
+                    if new_chem:
+                        self.chemical.set_chemical(new_chem)
+                    else:
+                        self.chemical.reset()
+                    self.update_values()
+                except (TypeError, KeyError):
+                    pass
+            elif event == "-MASS-":
+                try:
+                    new_mass: str = values["-MASS-"]
+                    if new_mass:
+                        self.chemical.set_mass(Decimal(new_mass))
+                    else:
+                        self.chemical.reset_amounts()
+                    self.update_values()
+                except (TypeError, InvalidOperation):
+                    pass
+            elif event == "-MOL-":
+                try:
+                    new_mol: str = values["-MOL-"]
+                    if new_mol:
+                        self.chemical.set_mol(Decimal(new_mol))
+                    else:
+                        self.chemical.reset_amounts()
+                    self.update_values()
+                except (TypeError, InvalidOperation):
+                    pass
+
+            print(event)
+
+    def update_values(self):
+        self.window["-CHEMICAL-"].update(value=chem_to_visual(self.chemical.chemical))
+        self.window["-MASS-"].update(value=self.chemical.get_mass_string())
+        self.window["-MOLARMASS-"].update(value=self.chemical.get_molarmass_string())
+        self.window["-MOL-"].update(value=self.chemical.get_mol_string())
+
+
 class Window:
-    def __init__(self, reactants=(), products=()):
+    def __init__(self, all_reactions=(), initial_reaction: int = 0):
         global SCROLLABLE
-        self.reactants = reactants
-        self.products = products
+        self.all_reactions = all_reactions
+        self.current_reaction = initial_reaction
+        self.reactants = all_reactions[self.current_reaction][0]
+        self.products = all_reactions[self.current_reaction][1]
 
         self.reactants += [Chemical(key=len(self.reactants) + i)
                            for i in range(max(0, DEFAULT_MOLECULE_AMOUNT - len(self.reactants)))]
@@ -1824,7 +1907,7 @@ class Window:
                              use_custom_titlebar=USE_CUSTOM_TITLEBAR, location=position,
                              size=win_size)
 
-        self.win["Update"].block_focus()
+        self.block_focuses()
         self.win["ReactantInput"].bind("<Return>", "_enter")
         self.win["ProductInput"].bind("<Return>", "_enter")
 
@@ -1855,10 +1938,10 @@ class Window:
         self.update_layout()
 
     def redefine_raw_layout(self):
-        self.raw_layout = [[sg.T(f"{' ' * (MONO_LEN - 10)}Missing:"),
+        self.raw_layout = [[sg.T("Missing:", size=(MONO_LEN, 1)),
                             sg.T(k="MissingReactantsMolarmass", size=(MONO_LEN, 1), enable_events=True), None, None,
                             None, None,
-                            sg.T(f"{' ' * (MONO_LEN - 10)}Missing:"),
+                            sg.T("Missing:", size=(MONO_LEN, 1)),
                             sg.T(k="MissingProductsMolarmass", size=(MONO_LEN, 1), enable_events=True)],
 
                            [None,
@@ -2069,6 +2152,14 @@ class Window:
         self.reactants[self.active_reactant].update()
         self.should_push = True
 
+    def block_focuses(self):
+        self.win["Update"].block_focus()
+        self.win["ProductInput"].block_focus()
+        self.win["ReactantInput"].block_focus()
+        for i in self.reactants + self.products:
+            self.win[f"{i.key}m"].block_focus()
+            self.win[f"{i.key}n"].block_focus()
+
     def append_atom_product(self, atom):
         if len(self.products) == 0:
             self.add_product(atom)
@@ -2083,15 +2174,13 @@ class Window:
         self.should_push = True
 
     def restart(self):
-        global global_reactants
-        global global_products
         global continue_program
         global position
         global win_size
+        global global_all_reactions
         position = self.win.CurrentLocation()
         win_size = self.win.Size
-        global_reactants = self.reactants
-        global_products = self.products
+        global_all_reactions = self.all_reactions
         self.should_exit = True
         continue_program = True
 
@@ -2170,7 +2259,6 @@ class Window:
         if self.values["ProductInput"] != p_val:
             self.win["ProductInput"](value=p_val)
 
-
     def sort_chemicals_by_key(self):
         def sort_func(r):
             return r.key
@@ -2208,7 +2296,6 @@ class Window:
         for i in range(len(new_products), len(self.products)):
             self.products[i].reset()
         return False
-
 
     def copy_reactants_and_products(self):
         new_r = []
@@ -2388,6 +2475,8 @@ class Window:
                                                    disabled_color)
             elif event == "ElementAnalyzer":
                 ElementAnalyzer(self)
+            elif event == "SingleChemical":
+                SingleChemicalWindow()
             elif event == "-UNIT_LIST-":
                 new_unit = self.values["-UNIT_LIST-"]
                 for i in units:
@@ -2398,6 +2487,22 @@ class Window:
                         break
                 self.should_push = True
                 self.update_unit()
+            elif event == "-CURRENT_REACTION-":
+                new_reaction: Union[str, int] = self.values["-CURRENT_REACTION-"]
+                if isinstance(new_reaction, str) and new_reaction.startswith("NEW"):
+                    if new_reaction.endswith("COPY"):
+                        self.all_reactions.append(
+                            [[copy.deepcopy(i) for i in self.all_reactions[self.current_reaction][0]],
+                             [copy.deepcopy(i) for i in self.all_reactions[self.current_reaction][1]]])
+                    else:
+                        self.all_reactions.append(
+                            [[Chemical(key=i.key) for i in self.all_reactions[self.current_reaction][0]],
+                             [Chemical(key=i.key) for i in self.all_reactions[self.current_reaction][1]]])
+                    self.current_reaction = len(self.all_reactions) - 1
+                    self.win["-CURRENT_REACTION-"].update(values=self.get_reactions_drop_down_list())
+                else:
+                    self.current_reaction = int(new_reaction) - 1
+                self.update_reactants_and_products()
 
             elif event == "Dissolved":
                 if DissolvedWin(win_object=self):
@@ -2445,6 +2550,15 @@ class Window:
 
         self.win.close()
 
+    def get_reactions_drop_down_list(self):
+        return [i + 1 for i in range(len(self.all_reactions))] + ["NEW", "NEW COPY"]
+
+    def update_reactants_and_products(self):
+        self.win["-CURRENT_REACTION-"].update(value=str(self.current_reaction + 1))
+        self.reactants = self.all_reactions[self.current_reaction][0]
+        self.products = self.all_reactions[self.current_reaction][1]
+        self.should_push = True
+
     def update_layout(self):
         main_button_panel = [[sg.B("Update", font=small_font, k="Update"), sg.B("Switch", font=small_font),
                               sg.T("BALANCED", font=small_font, k="BALANCED", text_color=active_color)],
@@ -2459,7 +2573,8 @@ class Window:
                                    sg.B("Redox Auto-balance", font=small_font),
                                    sg.B("Dissolved", font=small_font)],
                                   [sg.B("Half", font=small_font), sg.B("Reset balance", font=small_font),
-                                   sg.B("ElementAnalyzer", font=small_font)]]
+                                   sg.B("ElementAnalyzer", font=small_font),
+                                   sg.B("SingleChemical", font=small_font)]]
 
         tertiary_button_panel = [[sg.T("Subscript", k="Subscript",
                                        text_color=active_color if USE_SUBSCRIPT else disabled_color,
@@ -2478,7 +2593,13 @@ class Window:
 
         drop_down_panel = [[sg.Combo(values=[i.name for i in units], key="-UNIT_LIST-",
                                      size=(max(*[len(i.name) for i in units]), 1),
-                                     default_value=current_unit.name, font=small_font, enable_events=True)]]
+                                     default_value=current_unit.name, font=small_font, enable_events=True)],
+                           [sg.Combo(values=self.get_reactions_drop_down_list(),
+                                     size=(10, 1),
+                                     default_value=self.current_reaction + 1,
+                                     font=small_font,
+                                     enable_events=True,
+                                     key="-CURRENT_REACTION-")]]
 
         layout_prefix = [[sg.Col(main_button_panel), sg.Col(data_panel), sg.Col(secondary_button_panel),
                           sg.Col(tertiary_button_panel), sg.Col(drop_down_panel)]]
@@ -2585,4 +2706,4 @@ class Window:
 if __name__ == '__main__':
     while continue_program:
         continue_program = False
-        Window(global_reactants, global_products)
+        Window(global_all_reactions)
