@@ -2614,7 +2614,8 @@ class Window:
         if USE_MOLECULE_ADD:
             mol_tuple = (("O2", "CO2", "H2O", "N2"),
                          ("CH4", "C2H6", "C3H8", "C4H10", "C5H12", "C6H14", "C7H16", "C8H18", "C9H20", "C10H22"),
-                         ("CH3OH", "CH3CH2OH", "C8HF17O3S"))
+                         ("CH3OH", "CH3CH2OH", "C8HF17O3S"),
+                         ("NH4+", "OH-", "NO3-", "SO4-2", "PO4-3", "CO3-2"))
 
         atom_add_list = ()
         max_atom_len = 1  # value isn't used unless USE_ATOM_ADD
