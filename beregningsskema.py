@@ -111,6 +111,7 @@ BALANCE_WARN_TIME = 5  # Given in seconds
 DEFAULT_MOLECULE_AMOUNT = 3
 USE_CUSTOM_TITLEBAR = False
 CONVERT_SHIFTED = False
+REARRANGE_SIGN_IN_IONS = True
 USE_SUBSCRIPT = True
 USE_MOLECULE_ADD = True
 USE_ATOM_ADD = True
@@ -849,12 +850,31 @@ def visual_to_chem(chem, ignore_use_subscript=False):
             break
         a += m
         amount = int(a)
+    lifted = "\u2070\u00B9\u00B2\u00B3\u2074\u2075\u2076\u2077\u2078\u2079\u207A\u207B"
+    charge_sigs = "\u207A\u207B"
+    if chars["^+"] in chem or chars["^-"] in chem:
+        if REARRANGE_SIGN_IN_IONS:
+            start_of_charge = 0
+            for index, char in enumerate(chem):
+                if char in lifted:
+                    start_of_charge = index
+                    break
+            first_lifted = 0
+            for index in range(len(chem)-1, -1, -1):
+                if chem[index] in lifted and not first_lifted:
+                    first_lifted = index
+                if chem[index] not in charge_sigs and first_lifted:
+                    chem = (chem[:start_of_charge] + chem[index+1:first_lifted+1] + chem[start_of_charge:index+1]
+                            + chem[first_lifted+1:])
+                    break
+        chem = (chem.replace("\u207A", "+").replace("\u207B", "-")
+                    .replace("\u2070", "0").replace("\u00B9", "1").replace("\u00B2", "2").replace("\u00B3", "3")
+                    .replace("\u2074", "4").replace("\u2075", "5").replace("\u2076", "6").replace("\u2077", "7")
+                    .replace("\u2078", "8").replace("\u2079", "9"))
+
     chem = (chem[len(a):].replace("\u2080", "0").replace("\u2081", "1").replace("\u2082", "2").replace("\u2083", "3")
             .replace("\u2084", "4").replace("\u2085", "5").replace("\u2086", "6").replace("\u2087", "7")
-            .replace("\u2088", "8").replace("\u2089", "9").replace("\u207A", "+").replace("\u207B", "-")
-            .replace("\u2070", "0").replace("\u00B9", "1").replace("\u00B2", "2").replace("\u00B3", "3")
-            .replace("\u2074", "4").replace("\u2075", "5").replace("\u2076", "6").replace("\u2077", "7")
-            .replace("\u2078", "8").replace("\u2079", "9"))
+            .replace("\u2088", "8").replace("\u2089", "9"))
     if amount == 1:
         return chem
     return f"{amount}{chem}"
@@ -876,6 +896,13 @@ def chem_to_visual(chem):
             if i in ("+", "-"):
                 index_charge_start = index
                 break
+        if REARRANGE_SIGN_IN_IONS:
+            charge_sig_end = 0
+            for index in range(index_charge_start, -1, -1):
+                if chem[index] in ("+", "-"):
+                    charge_sig_end = index+1
+                    break
+            chem = chem[:index_charge_start] + chem[charge_sig_end:] + chem[index_charge_start:charge_sig_end]
         pre_charge = chem[:index_charge_start]
         post_charge = chem[index_charge_start:]
         post_charge = (post_charge.replace("+", "\u207A")
@@ -2248,14 +2275,14 @@ class Window:
         r_val = self.values["ReactantInput"]
         if CONVERT_SHIFTED:
             r_val = convert_shifted(r_val)
-        r_val = chem_to_visual(r_val)
+        r_val = chem_to_visual(visual_to_chem(r_val))
         if self.values["ReactantInput"] != r_val:
             self.win["ReactantInput"](value=r_val)
 
         p_val = self.values["ProductInput"]
         if CONVERT_SHIFTED:
             p_val = convert_shifted(p_val)
-        p_val = chem_to_visual(p_val)
+        p_val = chem_to_visual(visual_to_chem(p_val))
         if self.values["ProductInput"] != p_val:
             self.win["ProductInput"](value=p_val)
 
@@ -2560,20 +2587,35 @@ class Window:
         self.should_push = True
 
     def update_layout(self):
-        main_button_panel = [[sg.B("Update", font=small_font, k="Update"), sg.B("Switch", font=small_font),
-                              sg.T("BALANCED", font=small_font, k="BALANCED", text_color=active_color)],
-                             [sg.B("Reset", font=small_font), sg.B("ResetAmounts", font=small_font),
+        main_button_panel = [[sg.B("Update", font=small_font, k="Update"),
+                              sg.Push(),
+                              sg.B("Switch", font=small_font),
+                              sg.Push(),
+                              sg.T("BALANCED", font=small_font, k="BALANCED", text_color=active_color),
+                              sg.Push()],
+                             [sg.B("Reset", font=small_font),
+                              sg.Push(),
+                              sg.B("ResetAmounts", font=small_font),
+                              sg.Push(),
                               sg.B("Restart", font=small_font)]]
         data_panel = [[sg.T("Mass diff (r-p): ", font=small_font), sg.T("0." + "0" * 12, k="MassDiff", font=small_font,
                                                                         text_color=disabled_color)],
                       [sg.T("Mass (r): ", font=small_font), sg.T("0." + "0" * 12, k="RMass", font=small_font,
                                                                  text_color=disabled_color)],
                       ]
-        secondary_button_panel = [[sg.B("Double", font=small_font), sg.B("Auto-balance", font=small_font),
+        secondary_button_panel = [[sg.B("Double", font=small_font),
+                                   sg.Push(),
+                                   sg.B("Auto-balance", font=small_font),
+                                   sg.Push(),
                                    sg.B("Redox Auto-balance", font=small_font),
+                                   sg.Push(),
                                    sg.B("Dissolved", font=small_font)],
-                                  [sg.B("Half", font=small_font), sg.B("Reset balance", font=small_font),
+                                  [sg.B("Half", font=small_font),
+                                   sg.Push(),
+                                   sg.B("Reset balance", font=small_font),
+                                   sg.Push(),
                                    sg.B("ElementAnalyzer", font=small_font),
+                                   sg.Push(),
                                    sg.B("SingleChemical", font=small_font)]]
 
         tertiary_button_panel = [[sg.T("Subscript", k="Subscript",
